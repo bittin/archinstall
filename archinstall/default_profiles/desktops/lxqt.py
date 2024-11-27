@@ -1,10 +1,7 @@
-from typing import Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class LxqtProfile(XorgProfile):
@@ -15,6 +12,7 @@ class LxqtProfile(XorgProfile):
 	# LXQt works with lightdm, but since this is not supported, we will not default to this.
 	# https://github.com/lxqt/lxqt/issues/795
 	@property
+	@override
 	def packages(self) -> list[str]:
 		return [
 			"lxqt",
@@ -27,5 +25,6 @@ class LxqtProfile(XorgProfile):
 		]
 
 	@property
+	@override
 	def default_greeter_type(self) -> GreeterType | None:
 		return GreeterType.Sddm

@@ -1,17 +1,17 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
+from archinstall.default_profiles.profile import GreeterType, Profile, ProfileType, SelectResult
 from archinstall.lib.output import info
 from archinstall.lib.profile.profiles_handler import profile_handler
-from archinstall.default_profiles.profile import Profile, ProfileType, SelectResult, GreeterType
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem, SelectMenu,
-	FrameProperties, ResultType, PreviewStyle
-)
+from archinstall.tui import FrameProperties, MenuItem, MenuItemGroup, PreviewStyle, ResultType, SelectMenu
 
 if TYPE_CHECKING:
+	from collections.abc import Callable
+
 	from archinstall.lib.installer import Installer
-	_: Any
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class DesktopProfile(Profile):
@@ -25,6 +25,7 @@ class DesktopProfile(Profile):
 		)
 
 	@property
+	@override
 	def packages(self) -> list[str]:
 		return [
 			'nano',
@@ -40,6 +41,7 @@ class DesktopProfile(Profile):
 		]
 
 	@property
+	@override
 	def default_greeter_type(self) -> GreeterType | None:
 		combined_greeters: dict[GreeterType, int] = {}
 		for profile in self.current_selection:
@@ -56,6 +58,7 @@ class DesktopProfile(Profile):
 		for profile in self.current_selection:
 			profile.do_on_select()
 
+	@override
 	def do_on_select(self) -> SelectResult | None:
 		items = [
 			MenuItem(
@@ -88,10 +91,12 @@ class DesktopProfile(Profile):
 			case ResultType.Reset:
 				return SelectResult.ResetCurrent
 
+	@override
 	def post_install(self, install_session: 'Installer') -> None:
 		for profile in self.current_selection:
 			profile.post_install(install_session)
 
+	@override
 	def install(self, install_session: 'Installer') -> None:
 		# Install common packages for all desktop environments
 		install_session.add_additional_packages(self.packages)

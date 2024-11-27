@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import gettext
 import json
 import os
-import gettext
 from dataclasses import dataclass
-
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from .output import error, debug
+from .output import debug, error
 
 if TYPE_CHECKING:
 	_: Any
@@ -112,7 +111,7 @@ class TranslationHandler:
 		"""
 		# this is a very naughty way of retrieving the data but
 		# there's no alternative method exposed unfortunately
-		catalog = translation._catalog  # type: ignore
+		catalog = translation._catalog  # type: ignore[attr-defined]
 		messages = {k: v for k, v in catalog.items() if k and v}
 		return len(messages)
 
@@ -206,4 +205,7 @@ class DeferredTranslation:
 	@classmethod
 	def install(cls) -> None:
 		import builtins
-		builtins._ = cls  # type: ignore
+		builtins._ = cls  # type: ignore[attr-defined]
+
+
+translation_handler = TranslationHandler()

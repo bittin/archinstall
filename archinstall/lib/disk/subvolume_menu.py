@@ -1,27 +1,40 @@
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
-from .device_model import SubvolumeModification
+from archinstall.tui import Alignment, EditMenu, ResultType
+
 from ..menu import ListManager
 from ..utils.util import prompt_dir
-
-from archinstall.tui import (
-	Alignment, EditMenu, ResultType
-)
+from .device_model import SubvolumeModification
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class SubvolumeMenu(ListManager):
-	def __init__(self, prompt: str, btrfs_subvols: list[SubvolumeModification]):
+	def __init__(
+		self,
+		btrfs_subvols: list[SubvolumeModification],
+		prompt: str | None = None
+	):
 		self._actions = [
 			str(_('Add subvolume')),
 			str(_('Edit subvolume')),
 			str(_('Delete subvolume'))
 		]
-		super().__init__(prompt, btrfs_subvols, [self._actions[0]], self._actions[1:])
 
+		super().__init__(
+			btrfs_subvols,
+			[self._actions[0]],
+			self._actions[1:],
+			prompt
+		)
+
+	@override
 	def selected_action_display(self, selection: SubvolumeModification) -> str:
 		return str(selection.name)
 
@@ -54,6 +67,7 @@ class SubvolumeMenu(ListManager):
 
 		return SubvolumeModification(Path(name), path)
 
+	@override
 	def handle_action(
 		self,
 		action: str,

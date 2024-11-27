@@ -1,49 +1,54 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from archinstall.tui import MenuItem, MenuItemGroup
 
 from . import disk
+from .configuration import save_config
 from .general import secret
 from .hardware import SysInfo
+from .interactions import (
+	add_number_of_parallel_downloads,
+	ask_additional_packages_to_install,
+	ask_for_a_timezone,
+	ask_for_additional_users,
+	ask_for_audio_selection,
+	ask_for_bootloader,
+	ask_for_swap,
+	ask_for_uki,
+	ask_hostname,
+	ask_ntp,
+	ask_to_configure_network,
+	select_additional_repositories,
+	select_kernel,
+)
 from .locale.locale_menu import LocaleConfiguration, LocaleMenu
 from .menu import AbstractMenu
 from .mirrors import MirrorConfiguration, MirrorMenu
 from .models import NetworkConfiguration, NicType
-from .models.bootloader import Bootloader
 from .models.audio_configuration import AudioConfiguration
+from .models.bootloader import Bootloader
 from .models.users import User
 from .output import FormattedOutput
 from .profile.profile_menu import ProfileConfiguration
-from .interactions import ask_for_additional_users
-from .interactions import (
-	ask_for_audio_selection, ask_for_swap,
-	ask_for_bootloader, ask_for_uki, ask_hostname,
-	add_number_of_parallel_downloads, select_kernel,
-	ask_additional_packages_to_install, select_additional_repositories,
-	ask_for_a_timezone, ask_ntp, ask_to_configure_network
-)
-from .utils.util import get_password
-from .utils.util import format_cols
-from .configuration import save_config
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem
-)
-
-
-from .translationhandler import Language, TranslationHandler
+from .translationhandler import Language, translation_handler
+from .utils.util import format_cols, get_password
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class GlobalMenu(AbstractMenu):
 	def __init__(self, data_store: dict[str, Any]):
 		self._data_store = data_store
-		self._translation_handler = TranslationHandler()
 
 		if 'archinstall-language' not in data_store:
-			data_store['archinstall-language'] = self._translation_handler.get_language_by_abbr('en')
+			data_store['archinstall-language'] = translation_handler.get_language_by_abbr('en')
 
 		menu_optioons = self._get_menu_options(data_store)
 		self._item_group = MenuItemGroup(
@@ -257,8 +262,8 @@ class GlobalMenu(AbstractMenu):
 
 	def _select_archinstall_language(self, preset: Language) -> Language:
 		from .interactions.general_conf import select_archinstall_language
-		language = select_archinstall_language(self._translation_handler.translated_languages, preset)
-		self._translation_handler.activate(language)
+		language = select_archinstall_language(translation_handler.translated_languages, preset)
+		translation_handler.activate(language)
 
 		self._upate_lang_text()
 

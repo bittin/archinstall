@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..lib.output import unicode_ljust
 
 if TYPE_CHECKING:
-	_: Any
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 @dataclass

@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
-from archinstall.default_profiles.profile import Profile, GreeterType
-from .profile_model import ProfileConfiguration
-from ..menu import AbstractSubMenu
-from ..interactions.system_conf import select_driver
+from archinstall.default_profiles.profile import GreeterType, Profile
+from archinstall.tui import Alignment, FrameProperties, MenuItem, MenuItemGroup, Orientation, ResultType, SelectMenu
+
 from ..hardware import GfxDriver
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem, SelectMenu,
-	FrameProperties, Alignment, ResultType,
-	Orientation
-)
+from ..interactions.system_conf import select_driver
+from ..menu import AbstractSubMenu
+from .profile_model import ProfileConfiguration
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class ProfileMenu(AbstractSubMenu):
@@ -64,6 +64,7 @@ class ProfileMenu(AbstractSubMenu):
 			)
 		]
 
+	@override
 	def run(self) -> ProfileConfiguration | None:
 		super().run()
 

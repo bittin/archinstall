@@ -1,21 +1,21 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, override
 
-from . import DiskLayoutConfiguration, DiskLayoutType
-from .device_model import LvmConfiguration
-from ..disk import (
-	DeviceModification
-)
+from archinstall.tui import MenuItem, MenuItemGroup
+
+from ..disk import DeviceModification
 from ..interactions import select_disk_config
 from ..interactions.disk_conf import select_lvm_config
-from ..output import FormattedOutput
 from ..menu import AbstractSubMenu
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem
-)
+from ..output import FormattedOutput
+from . import DiskLayoutConfiguration, DiskLayoutType
+from .device_model import LvmConfiguration
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class DiskLayoutConfigurationMenu(AbstractSubMenu):
@@ -52,6 +52,7 @@ class DiskLayoutConfigurationMenu(AbstractSubMenu):
 			),
 		]
 
+	@override
 	def run(self) -> DiskLayoutConfiguration | None:
 		super().run()
 

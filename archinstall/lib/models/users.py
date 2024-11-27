@@ -1,9 +1,13 @@
 from dataclasses import dataclass
-from typing import Union, Any, TYPE_CHECKING
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class PasswordStrength(Enum):
@@ -148,8 +152,8 @@ class User:
 	@classmethod
 	def parse_arguments(
 		cls,
-		config_users: Union[list[dict[str, str]], dict[str, str]],
-		config_superusers: Union[list[dict[str, str]], dict[str, str]]
+		config_users: list[dict[str, str]] | dict[str, str],
+		config_superusers: list[dict[str, str]] | dict[str, str]
 	) -> list['User']:
 		users = []
 

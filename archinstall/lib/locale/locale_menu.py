@@ -1,16 +1,17 @@
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, override
 
-from .utils import list_keyboard_languages, list_locales, set_kb_layout, get_kb_layout
+from archinstall.tui import Alignment, FrameProperties, MenuItem, MenuItemGroup, ResultType, SelectMenu
+
 from ..menu import AbstractSubMenu
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem, SelectMenu,
-	FrameProperties, Alignment, ResultType
-)
+from .utils import get_kb_layout, list_keyboard_languages, list_locales, set_kb_layout
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 @dataclass
@@ -107,6 +108,7 @@ class LocaleMenu(AbstractSubMenu):
 		)
 		return temp_locale.preview()
 
+	@override
 	def run(self) -> LocaleConfiguration:
 		super().run()
 

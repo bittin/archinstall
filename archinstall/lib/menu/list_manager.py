@@ -1,23 +1,25 @@
 import copy
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from archinstall.tui import Alignment, MenuItem, MenuItemGroup, ResultType, SelectMenu
+
 from ..output import FormattedOutput
 
-from archinstall.tui import (
-	MenuItemGroup, MenuItem, SelectMenu,
-	Alignment, ResultType
-)
-
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class ListManager:
 	def __init__(
 		self,
-		prompt: str,
 		entries: list[Any],
 		base_actions: list[str],
-		sub_menu_actions: list[str]
+		sub_menu_actions: list[str],
+		prompt: str | None = None
 	):
 		"""
 		:param prompt:  Text which will appear at the header
@@ -36,8 +38,7 @@ class ListManager:
 		self._original_data = copy.deepcopy(entries)
 		self._data = copy.deepcopy(entries)
 
-		explainer = str(_('\n Choose an object from the list, and select one of the available actions for it to execute'))
-		self._prompt = prompt if prompt else explainer
+		self._prompt: str | None = prompt
 
 		self._separator = ''
 		self._confirm_action = str(_('Confirm and exit'))
@@ -63,9 +64,14 @@ class ListManager:
 			# this will return a dictionary with the key as the menu entry to be displayed
 			# and the value is the original value from the self._data container
 			data_formatted = self.reformat(self._data)
-			options, header = self._prepare_selection(data_formatted)
+			options = self._prepare_selection(data_formatted)
 
-			items = [MenuItem(o, value=o) for o in options]
+			header = self._get_header(data_formatted)
+
+			if self._prompt is not None:
+				header = f'{self._prompt}\n\n{header}'
+
+			items = [MenuItem(o[0], value=o[1]) for o in options]
 			group = MenuItemGroup(items, sort_items=False)
 
 			result = SelectMenu(
@@ -73,7 +79,7 @@ class ListManager:
 				header=header,
 				search_enabled=False,
 				allow_skip=False,
-				alignment=Alignment.CENTER,
+				alignment=Alignment.CENTER
 			).run()
 
 			match result.type_:
@@ -97,23 +103,24 @@ class ListManager:
 		else:
 			return self._data
 
-	def _prepare_selection(self, data_formatted: dict[str, Any]) -> tuple[list[str], str]:
+	def _get_header(self, data_formatted: dict[str, Any]) -> str:
+		table_header = [key for key, val in data_formatted.items() if val is None]
+		header = '\n'.join(table_header)
+		return header
+
+	def _prepare_selection(self, data_formatted: dict[str, Any]) -> list[tuple[str, Any]]:
 		# header rows are mapped to None so make sure
 		# to exclude those from the selectable data
-		options: list[str] = [key for key, val in data_formatted.items() if val is not None]
-		header = ''
+		options = [(key, val) for key, val in data_formatted.items() if val is not None]
 
 		if len(options) > 0:
-			table_header = [key for key, val in data_formatted.items() if val is None]
-			header = '\n'.join(table_header)
+			options.append((self._separator, None))
 
-		if len(options) > 0:
-			options.append(self._separator)
+		additional_options = self._base_actions + self._terminate_actions
+		for o in additional_options:
+			options.append((o, o))
 
-		options += self._base_actions
-		options += self._terminate_actions
-
-		return options, header
+		return options
 
 	def _run_actions_on_entry(self, entry: Any) -> None:
 		options = self.filter_options(entry, self._sub_menu_actions) + [self._cancel_action]
@@ -145,16 +152,19 @@ class ListManager:
 		Default implementation of the table to be displayed.
 		Override if any custom formatting is needed
 		"""
-		table = FormattedOutput.as_table(data)
-		rows = table.split('\n')
+		display_data: dict[str, Any | None] = {}
 
-		# these are the header rows of the table and do not map to any User obviously
-		# we're adding 2 spaces as prefix because the menu selector '> ' will be put before
-		# the selectable rows so the header has to be aligned
-		display_data: dict[str, Any | None] = {f'{rows[0]}': None, f'{rows[1]}': None}
+		if data:
+			table = FormattedOutput.as_table(data)
+			rows = table.split('\n')
 
-		for row, entry in zip(rows[2:], data):
-			display_data[row] = entry
+			# these are the header rows of the table and do not map to any User obviously
+			# we're adding 2 spaces as prefix because the menu selector '> ' will be put before
+			# the selectable rows so the header has to be aligned
+			display_data = {f'{rows[0]}': None, f'{rows[1]}': None}
+
+			for row, entry in zip(rows[2:], data):
+				display_data[row] = entry
 
 		return display_data
 

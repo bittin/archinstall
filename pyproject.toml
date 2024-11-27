@@ -11,15 +11,15 @@ authors = [
 ]
 license = {text = "GPL-3.0-only"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = ["linux", "arch", "archinstall", "installer"]
 classifiers = [
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
     "pyparted @ https://github.com//dcantrell/pyparted/archive/v3.13.0.tar.gz#sha512=26819e28d73420937874f52fda03eb50ab1b136574ea9867a69d46ae4976d38c4f26a2697fa70597eed90dd78a5ea209bafcc3227a17a7a5d63cff6d107c2b11",
-    "pydantic==2.9.2"
+    "pydantic==2.10.1"
 ]
 
 [project.urls]
@@ -33,9 +33,10 @@ dev = [
     "mypy==1.13.0",
     "flake8==7.1.1",
     "pre-commit==4.0.1",
-    "ruff==0.7.4",
+    "ruff==0.8.0",
     "pylint==3.3.1",
     "pylint-pydantic==0.3.2",
+    "pytest==8.3.3",
 ]
 doc = ["sphinx"]
 
@@ -63,7 +64,7 @@ include-package-data = true
 archinstall = "archinstall"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = "."
 exclude = "^build/"
 check_untyped_defs = true
@@ -86,9 +87,16 @@ warn_unused_configs = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
+module = "archinstall.default_profiles.*"
+disallow_any_explicit = true
+
+[[tool.mypy.overrides]]
+module = "archinstall.default_profiles.profile"
+disallow_any_explicit = false
+
+[[tool.mypy.overrides]]
 module = "archinstall.examples.*"
 disallow_any_explicit = true
-follow_imports = "silent"
 
 [[tool.mypy.overrides]]
 module = "archinstall.lib.*"
@@ -108,6 +116,10 @@ module = "archinstall.tui.*"
 warn_unreachable = false
 
 [[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
 module = [
     "parted",
 ]
@@ -117,6 +129,11 @@ ignore_missing_imports = true
 targets = ["archinstall"]
 exclude = ["/tests"]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-s"
+testpaths = ["tests"]
+
 [tool.pylint.main]
 ignore-paths = [
     "^build/",
@@ -124,11 +141,11 @@ ignore-paths = [
 ]
 load-plugins = ["pylint_pydantic"]
 persistent = false
-py-version = "3.11"
+py-version = "3.12"
 recursive = true
 
 [tool.pylint.format]
-max-line-length = 220
+max-line-length = 160
 
 [tool.pylint."messages control"]
 disable = [
@@ -161,9 +178,9 @@ score = false
 additional-builtins = ["_"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 builtins = ["_"]
-line-length = 220
+line-length = 160
 
 [tool.ruff.lint]
 select = [
@@ -176,6 +193,7 @@ select = [
     "FA",     # flake8-future-annotations
     "FLY",    # flynt
     "G",      # flake8-logging-format
+    "I",      # isort
     "ICN",    # flake8-import-conventions
     "ISC",    # flake8-implicit-str-concat
     "LOG",    # flake8-logging
@@ -194,13 +212,9 @@ select = [
 ignore = [
     "E722",     # bare-except
     "PLW2901",  # redefined-loop-name
-    "UP006",    # non-pep585-annotation
-    "UP007",    # non-pep604-annotation
-    "UP027",    # unpacked-list-comprehension
     "UP028",    # yield-in-for-loop
     "UP031",    # printf-string-formatting
     "UP032",    # f-string
-    "UP035",    # deprecated-import
     "UP037",    # quoted-annotation
     "W191",     # tab-indentation
 ]

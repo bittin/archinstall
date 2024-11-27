@@ -1,10 +1,7 @@
-from typing import Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class EnlighenmentProfile(XorgProfile):
@@ -12,6 +9,7 @@ class EnlighenmentProfile(XorgProfile):
 		super().__init__('Enlightenment', ProfileType.WindowMgr, description='')
 
 	@property
+	@override
 	def packages(self) -> list[str]:
 		return [
 			"enlightenment",
@@ -19,5 +17,6 @@ class EnlighenmentProfile(XorgProfile):
 		]
 
 	@property
+	@override
 	def default_greeter_type(self) -> GreeterType | None:
 		return GreeterType.Lightdm

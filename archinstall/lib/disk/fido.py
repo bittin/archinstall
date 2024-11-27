@@ -3,10 +3,10 @@ from __future__ import annotations
 import getpass
 from pathlib import Path
 
-from .device_model import Fido2Device
+from ..exceptions import SysCallError
 from ..general import SysCommand, SysCommandWorker, clear_vt100_escape_codes
 from ..output import error, info
-from ..exceptions import SysCallError
+from .device_model import Fido2Device
 
 
 class Fido2:
@@ -42,7 +42,7 @@ class Fido2:
 				error('fido2 support is most likely not installed')
 				raise ValueError('HSM devices can not be detected, is libfido2 installed?')
 
-			fido_devices: str = clear_vt100_escape_codes(ret)  # type: ignore
+			fido_devices: str = clear_vt100_escape_codes(ret)  # type: ignore[assignment]
 
 			manufacturer_pos = 0
 			product_pos = 0

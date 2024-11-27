@@ -2,15 +2,19 @@ import os
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .exceptions import SysCallError
 from .general import SysCommand
-from .networking import list_interfaces, enrich_iface_types
+from .networking import enrich_iface_types, list_interfaces
 from .output import debug
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class CpuVendor(Enum):

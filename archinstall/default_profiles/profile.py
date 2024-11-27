@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import sys
 from enum import Enum, auto
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..lib.storage import storage
 
 if TYPE_CHECKING:
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
 	from ..lib.installer import Installer
-	_: Any
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class ProfileType(Enum):

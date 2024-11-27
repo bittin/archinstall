@@ -1,26 +1,25 @@
-import time
 import json
+import time
 import urllib.parse
-from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, override
+
+from archinstall.tui import Alignment, EditMenu, FrameProperties, MenuItem, MenuItemGroup, ResultType, SelectMenu
 
 from .menu import AbstractSubMenu, ListManager
+from .models.mirrors import MirrorStatusEntryV3, MirrorStatusListV3
 from .networking import fetch_data_from_url
 from .output import FormattedOutput, debug
 from .storage import storage
-from .models.mirrors import MirrorStatusListV3, MirrorStatusEntryV3
-
-from archinstall.tui import (
-	MenuItemGroup, MenuItem, SelectMenu,
-	FrameProperties, Alignment, ResultType,
-	EditMenu
-)
-
 
 if TYPE_CHECKING:
-	_: Any
+	from collections.abc import Callable
+
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 
 class SignCheck(Enum):
@@ -130,16 +129,19 @@ class CustomMirrorList(ListManager):
 			str(_('Change custom mirror')),
 			str(_('Delete custom mirror'))
 		]
+
 		super().__init__(
-			'',
 			custom_mirrors,
 			[self._actions[0]],
-			self._actions[1:]
+			self._actions[1:],
+			''
 		)
 
+	@override
 	def selected_action_display(self, selection: CustomMirror) -> str:
 		return selection.name
 
+	@override
 	def handle_action(
 		self,
 		action: str,
@@ -300,6 +302,7 @@ class MirrorMenu(AbstractSubMenu):
 		output = FormattedOutput.as_table(custom_mirrors)
 		return output.strip()
 
+	@override
 	def run(self) -> MirrorConfiguration:
 		super().run()
 
@@ -386,7 +389,8 @@ def _parse_remote_mirror_list(mirrorlist: str) -> dict[str, list[MirrorStatusEnt
 		if any([
 			mirror.active is False,  # Disabled by mirror-list admins
 			mirror.last_sync is None,  # Has not synced recently
-			# mirror.score (error rate) over time reported from backend: https://github.com/archlinux/archweb/blob/31333d3516c91db9a2f2d12260bd61656c011fd1/mirrors/utils.py#L111C22-L111C66
+			# mirror.score (error rate) over time reported from backend:
+			# https://github.com/archlinux/archweb/blob/31333d3516c91db9a2f2d12260bd61656c011fd1/mirrors/utils.py#L111C22-L111C66
 			(mirror.score is None or mirror.score >= 100),
 		]):
 			continue

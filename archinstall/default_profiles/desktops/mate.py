@@ -1,10 +1,7 @@
-from typing import Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class MateProfile(XorgProfile):
@@ -12,6 +9,7 @@ class MateProfile(XorgProfile):
 		super().__init__('Mate', ProfileType.DesktopEnv, description='')
 
 	@property
+	@override
 	def packages(self) -> list[str]:
 		return [
 			"mate",
@@ -19,5 +17,6 @@ class MateProfile(XorgProfile):
 		]
 
 	@property
+	@override
 	def default_greeter_type(self) -> GreeterType | None:
 		return GreeterType.Lightdm
