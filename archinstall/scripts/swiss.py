@@ -61,7 +61,7 @@ class SwissMainMenu(GlobalMenu):
 								archinstall.arguments[item.key] = item.action(item.value)
 
 				perform_installation(
-					archinstall.storage.get('MOUNT_POINT', Path('/mnt')),
+					archinstall.arguments.get('mount_point', Path('/mnt')),
 					self._execution_mode
 				)
 			case ExecutionMode.Only_OS:
@@ -87,7 +87,7 @@ class SwissMainMenu(GlobalMenu):
 										break
 
 				perform_installation(
-					archinstall.storage.get('MOUNT_POINT', Path('/mnt')),
+					archinstall.arguments.get('mount_point', Path('/mnt')),
 					self._execution_mode
 				)
 			case _:
@@ -229,7 +229,7 @@ def perform_installation(mountpoint: Path, exec_mode: ExecutionMode) -> None:
 			if chroot:
 				try:
 					installation.drop_to_shell()
-				except:
+				except Exception:
 					pass
 
 		debug(f"Disk states after installing:\n{disk.disk_layouts()}")
@@ -266,7 +266,7 @@ def swiss() -> None:
 	)
 
 	fs_handler.perform_filesystem_operations()
-	perform_installation(archinstall.storage.get('MOUNT_POINT', Path('/mnt')), mode)
+	perform_installation(archinstall.arguments.get('mount_point', Path('/mnt')), mode)
 
 
 swiss()

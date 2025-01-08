@@ -1,5 +1,4 @@
 import json
-import os
 import readline
 import stat
 from pathlib import Path
@@ -117,14 +116,14 @@ class ConfigurationOutput:
 		if self._is_valid_path(dest_path):
 			target = dest_path / self._user_config_file
 			target.write_text(self.user_config_to_json())
-			os.chmod(target, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+			target.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
 
 	def save_user_creds(self, dest_path: Path) -> None:
 		if self._is_valid_path(dest_path):
 			if user_creds := self.user_credentials_to_json():
 				target = dest_path / self._user_creds_file
 				target.write_text(user_creds)
-				os.chmod(target, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+				target.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
 
 	def save(self, dest_path: Path | None = None) -> None:
 		dest_path = dest_path or self._default_save_path
@@ -157,17 +156,17 @@ def save_config(config: dict[str, Any]) -> None:
 		MenuItem(
 			str(_("Save user configuration (including disk layout)")),
 			value="user_config",
-			preview_action=lambda x: preview(x)
+			preview_action=preview
 		),
 		MenuItem(
 			str(_("Save user credentials")),
 			value="user_creds",
-			preview_action=lambda x: preview(x)
+			preview_action=preview
 		),
 		MenuItem(
 			str(_("Save all")),
 			value="all",
-			preview_action=lambda x: preview(x)
+			preview_action=preview
 		)
 	]
 
@@ -219,7 +218,7 @@ def save_config(config: dict[str, Any]) -> None:
 			if result.item() == MenuItem.no():
 				return
 
-	debug("Saving configuration files to {}".format(dest_path.absolute()))
+	debug(f"Saving configuration files to {dest_path.absolute()}")
 
 	match save_option:
 		case "user_config":

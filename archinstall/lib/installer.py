@@ -147,11 +147,11 @@ class Installer:
 		if not storage['arguments'].get('skip_ntp', False):
 			info(_('Waiting for time sync (timedatectl show) to complete.'))
 
-			_started_wait = time.time()
-			_notified = False
+			started_wait = time.time()
+			notified = False
 			while True:
-				if not _notified and time.time() - _started_wait > 5:
-					_notified = True
+				if not notified and time.time() - started_wait > 5:
+					notified = True
 					warn(
 						_("Time synchronization not completing, while you wait - check the docs for workarounds: https://archinstall.readthedocs.io/"))
 
@@ -361,7 +361,7 @@ class Installer:
 		subvolumes: list[disk.SubvolumeModification],
 		mount_options: list[str] = []
 	) -> None:
-		for subvol in subvolumes:
+		for subvol in sorted(subvolumes, key=lambda x: x.relative_mountpoint):
 			mountpoint = self.target / subvol.relative_mountpoint
 			mount_options = mount_options + [f'subvol={subvol.name}']
 			disk.device_handler.mount(dev_path, mountpoint, options=mount_options)
@@ -478,27 +478,21 @@ class Installer:
 				if result := plugin.on_mirrors(mirror_config):
 					mirror_config = result
 
-		if on_target:
-			local_pacman_conf = Path(f'{self.target}/etc/pacman.conf')
-			local_mirrorlist_conf = Path(f'{self.target}/etc/pacman.d/mirrorlist')
-		else:
-			local_pacman_conf = Path('/etc/pacman.conf')
-			local_mirrorlist_conf = Path('/etc/pacman.d/mirrorlist')
-
-		mirrorlist_config = mirror_config.mirrorlist_config()
+		mirrorlist_config = mirror_config.mirrorlist_config(speed_sort=True)
 		pacman_config = mirror_config.pacman_config()
+
+		root = self.target if on_target else Path('/')
 
 		if pacman_config:
 			debug(f'Pacman config: {pacman_config}')
 
-			with local_pacman_conf.open('a') as fp:
+			with open(root / 'etc/pacman.conf', 'a') as fp:
 				fp.write(pacman_config)
 
 		if mirrorlist_config:
 			debug(f'Mirrorlist: {mirrorlist_config}')
 
-			with local_mirrorlist_conf.open('w') as fp:
-				fp.write(mirrorlist_config)
+			(root / 'etc/pacman.d/mirrorlist').write_text(mirrorlist_config)
 
 	def genfstab(self, flags: str = '-pU') -> None:
 		fstab_path = self.target / "etc" / "fstab"
@@ -526,8 +520,7 @@ class Installer:
 				fp.write(f'{entry}\n')
 
 	def set_hostname(self, hostname: str) -> None:
-		with open(f'{self.target}/etc/hostname', 'w') as fh:
-			fh.write(hostname + '\n')
+		(self.target / 'etc/hostname').write_text(hostname + '\n')
 
 	def set_locale(self, locale_config: LocaleConfiguration) -> bool:
 		modifier = ''
@@ -732,9 +725,9 @@ class Installer:
 		try:
 			SysCommand(f'/usr/bin/arch-chroot {self.target} mkinitcpio {" ".join(flags)}', peek_output=True)
 			return True
-		except SysCallError as error:
-			if error.worker:
-				log(error.worker._trace_log.decode())
+		except SysCallError as e:
+			if e.worker:
+				log(e.worker._trace_log.decode())
 			return False
 
 	def _get_microcode(self) -> Path | None:
@@ -843,13 +836,13 @@ class Installer:
 		pacman_conf = pacman.Config(self.target)
 		if multilib:
 			info("The multilib flag is set. This system will be installed with the multilib repository enabled.")
-			pacman_conf.enable(pacman.Repo.Multilib)
+			pacman_conf.enable(pacman.Repo.MULTILIB)
 		else:
 			info("The multilib flag is not set. This system will be installed without multilib repositories enabled.")
 
 		if testing:
 			info("The testing flag is set. This system will be installed with testing repositories enabled.")
-			pacman_conf.enable(pacman.Repo.Testing)
+			pacman_conf.enable(pacman.Repo.TESTING)
 		else:
 			info("The testing flag is not set. This system will be installed without testing repositories enabled.")
 
@@ -1481,32 +1474,32 @@ Exec = /bin/sh -c "{hook_command}"
 	def enable_sudo(self, entity: str, group: bool = False):
 		info(f'Enabling sudo permissions for {entity}')
 
-		sudoers_dir = f"{self.target}/etc/sudoers.d"
+		sudoers_dir = self.target / "etc/sudoers.d"
 
 		# Creates directory if not exists
-		if not (sudoers_path := Path(sudoers_dir)).exists():
-			sudoers_path.mkdir(parents=True)
+		if not sudoers_dir.exists():
+			sudoers_dir.mkdir(parents=True)
 			# Guarantees sudoer confs directory recommended perms
-			os.chmod(sudoers_dir, 0o440)
+			sudoers_dir.chmod(0o440)
 			# Appends a reference to the sudoers file, because if we are here sudoers.d did not exist yet
-			with open(f'{self.target}/etc/sudoers', 'a') as sudoers:
+			with open(self.target / 'etc/sudoers', 'a') as sudoers:
 				sudoers.write('@includedir /etc/sudoers.d\n')
 
 		# We count how many files are there already so we know which number to prefix the file with
 		num_of_rules_already = len(os.listdir(sudoers_dir))
-		file_num_str = "{:02d}".format(num_of_rules_already)  # We want 00_user1, 01_user2, etc
+		file_num_str = f"{num_of_rules_already:02d}"  # We want 00_user1, 01_user2, etc
 
 		# Guarantees that entity str does not contain invalid characters for a linux file name:
 		# \ / : * ? " < > |
 		safe_entity_file_name = re.sub(r'(\\|\/|:|\*|\?|"|<|>|\|)', '', entity)
 
-		rule_file_name = f"{sudoers_dir}/{file_num_str}_{safe_entity_file_name}"
+		rule_file = sudoers_dir / f"{file_num_str}_{safe_entity_file_name}"
 
-		with open(rule_file_name, 'a') as sudoers:
+		with rule_file.open('a') as sudoers:
 			sudoers.write(f'{"%" if group else ""}{entity} ALL=(ALL) ALL\n')
 
 		# Guarantees sudoer conf file recommended perms
-		os.chmod(Path(rule_file_name), 0o440)
+		rule_file.chmod(0o440)
 
 	def create_users(self, users: User | list[User]) -> None:
 		if not isinstance(users, list):

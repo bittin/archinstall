@@ -18,7 +18,7 @@ from datetime import date, datetime
 from enum import Enum
 from select import EPOLLHUP, EPOLLIN, epoll
 from shutil import which
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 from urllib.request import Request, urlopen
 
 from .exceptions import RequirementError, SysCallError
@@ -86,6 +86,7 @@ class JSON(json.JSONEncoder, json.JSONDecoder):
 	A safe JSON encoder that will omit private information in dicts (starting with !)
 	"""
 
+	@override
 	def encode(self, o: Any) -> str:
 		return super().encode(jsonify(o))
 
@@ -95,6 +96,7 @@ class UNSAFE_JSON(json.JSONEncoder, json.JSONDecoder):
 	UNSAFE_JSON will call/encode and keep private information in dicts (starting with !)
 	"""
 
+	@override
 	def encode(self, o: Any) -> str:
 		return super().encode(jsonify(o, safe=False))
 
@@ -105,14 +107,11 @@ class SysCommandWorker:
 		cmd: str | list[str],
 		callbacks: dict[str, Any] | None = None,
 		peek_output: bool | None = False,
-		environment_vars: dict[str, Any] | None = None,
+		environment_vars: dict[str, str] | None = None,
 		logfile: None = None,
 		working_directory: str | None = './',
 		remove_vt100_escape_codes_from_lines: bool = True
 	):
-		callbacks = callbacks or {}
-		environment_vars = environment_vars or {}
-
 		if isinstance(cmd, str):
 			cmd = shlex.split(cmd)
 
@@ -121,10 +120,13 @@ class SysCommandWorker:
 				cmd[0] = locate_binary(cmd[0])
 
 		self.cmd = cmd
-		self.callbacks = callbacks
+		self.callbacks = callbacks or {}
 		self.peek_output = peek_output
 		# define the standard locale for command outputs. For now the C ascii one. Can be overridden
-		self.environment_vars = {**storage.get('CMD_LOCALE', {}), **environment_vars}
+		self.environment_vars = {'LC_ALL': 'C'}
+		if environment_vars:
+			self.environment_vars.update(environment_vars)
+
 		self.logfile = logfile
 		self.working_directory = working_directory
 
@@ -162,10 +164,12 @@ class SysCommandWorker:
 
 		self._trace_log_pos = last_line
 
+	@override
 	def __repr__(self) -> str:
 		self.make_sure_we_are_executing()
 		return str(self._trace_log)
 
+	@override
 	def __str__(self) -> str:
 		try:
 			return self._trace_log.decode('utf-8')
@@ -182,7 +186,7 @@ class SysCommandWorker:
 		if self.child_fd:
 			try:
 				os.close(self.child_fd)
-			except:
+			except Exception:
 				pass
 
 		if self.peek_output:
@@ -216,7 +220,6 @@ class SysCommandWorker:
 
 		if self.child_fd:
 			return os.write(self.child_fd, data + (b'\n' if line_ending else b''))
-			os.fsync(self.child_fd)
 
 		return 0
 
@@ -252,7 +255,7 @@ class SysCommandWorker:
 				peek_output_log.write(str(output))
 
 			if change_perm:
-				os.chmod(str(peak_logfile), stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+				peak_logfile.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
 
 			sys.stdout.write(str(output))
 			sys.stdout.flush()
@@ -264,7 +267,7 @@ class SysCommandWorker:
 
 		if self.child_fd:
 			got_output = False
-			for fileno, event in self.poll_object.poll(0.1):
+			for _fileno, _event in self.poll_object.poll(0.1):
 				try:
 					output = os.read(self.child_fd, 8192)
 					got_output = True
@@ -312,14 +315,10 @@ class SysCommandWorker:
 					cmd_log.write(f"{time.time()} {self.cmd}\n")
 
 				if change_perm:
-					os.chmod(str(history_logfile), stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+					history_logfile.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
 			except (PermissionError, FileNotFoundError):
 				# If history_logfile does not exist, ignore the error
 				pass
-			except Exception as e:
-				exception_type = type(e).__name__
-				error(f"Unexpected {exception_type} occurred in {self.cmd}: {e}")
-				raise e
 
 			if storage.get('arguments', {}).get('debug'):
 				debug(f"Executing: {self.cmd}")
@@ -350,7 +349,7 @@ class SysCommand:
 		callbacks: dict[str, Callable[[Any], Any]] = {},
 		start_callback: Callable[[Any], Any] | None = None,
 		peek_output: bool | None = False,
-		environment_vars: dict[str, Any] | None = None,
+		environment_vars: dict[str, str] | None = None,
 		working_directory: str | None = './',
 		remove_vt100_escape_codes_from_lines: bool = True):
 
@@ -379,8 +378,7 @@ class SysCommand:
 
 	def __iter__(self, *args: list[Any], **kwargs: dict[str, Any]) -> Iterator[bytes]:
 		if self.session:
-			for line in self.session:
-				yield line
+			yield from self.session
 
 	def __getitem__(self, key: slice) -> bytes | None:
 		if not self.session:
@@ -393,17 +391,9 @@ class SysCommand:
 		else:
 			raise ValueError("SysCommand() doesn't have key & value pairs, only slices, SysCommand('ls')[:10] as an example.")
 
+	@override
 	def __repr__(self, *args: list[Any], **kwargs: dict[str, Any]) -> str:
 		return self.decode('UTF-8', errors='backslashreplace') or ''
-
-	def __json__(self) -> dict[str, str | bool | list[str] | dict[str, Any] | None]:
-		return {
-			'cmd': self.cmd,
-			'callbacks': self._callbacks,
-			'peak': self.peek_output,
-			'environment_vars': self.environment_vars,
-			'session': self.session is not None
-		}
 
 	def create_session(self) -> bool:
 		"""

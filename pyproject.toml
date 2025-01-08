@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "pyparted @ https://github.com//dcantrell/pyparted/archive/v3.13.0.tar.gz#sha512=26819e28d73420937874f52fda03eb50ab1b136574ea9867a69d46ae4976d38c4f26a2697fa70597eed90dd78a5ea209bafcc3227a17a7a5d63cff6d107c2b11",
-    "pydantic==2.10.1"
+    "pydantic==2.10.4"
 ]
 
 [project.urls]
@@ -30,13 +30,13 @@ Source = "https://github.com/archlinux/archinstall"
 [project.optional-dependencies]
 log = ["systemd_python==235"]
 dev = [
-    "mypy==1.13.0",
+    "mypy==1.14.1",
     "flake8==7.1.1",
     "pre-commit==4.0.1",
-    "ruff==0.8.0",
-    "pylint==3.3.1",
-    "pylint-pydantic==0.3.2",
-    "pytest==8.3.3",
+    "ruff==0.8.6",
+    "pylint==3.3.3",
+    "pylint-pydantic==0.3.5",
+    "pytest==8.3.4",
 ]
 doc = ["sphinx"]
 
@@ -91,10 +91,6 @@ module = "archinstall.default_profiles.*"
 disallow_any_explicit = true
 
 [[tool.mypy.overrides]]
-module = "archinstall.default_profiles.profile"
-disallow_any_explicit = false
-
-[[tool.mypy.overrides]]
 module = "archinstall.examples.*"
 disallow_any_explicit = true
 
@@ -108,16 +104,20 @@ warn_return_any = false
 warn_unreachable = false
 
 [[tool.mypy.overrides]]
+module = "archinstall.lib.packages"
+disallow_any_explicit = true
+
+[[tool.mypy.overrides]]
+module = "archinstall.lib.utils"
+disallow_any_explicit = true
+
+[[tool.mypy.overrides]]
 module = "archinstall.scripts.*"
 warn_unreachable = false
 
 [[tool.mypy.overrides]]
 module = "archinstall.tui.*"
 warn_unreachable = false
-
-[[tool.mypy.overrides]]
-module = "tests.*"
-ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -145,6 +145,7 @@ py-version = "3.12"
 recursive = true
 
 [tool.pylint.format]
+indent-string = '\t'
 max-line-length = 160
 
 [tool.pylint."messages control"]
@@ -152,23 +153,14 @@ disable = [
     "C",
     "R",
     "attribute-defined-outside-init",
-    "bad-indentation",
-    "bare-except",
     "broad-exception-caught",
     "cell-var-from-loop",
-    "comparison-with-callable",
     "dangerous-default-value",
     "fixme",
     "protected-access",
     "raise-missing-from",
-    "redefined-builtin",
-    "redefined-outer-name",
-    "unnecessary-lambda",
-    "unreachable",
     "unspecified-encoding",
     "unused-argument",
-    "unused-variable",
-    "useless-parent-delegation",
 ]
 
 [tool.pylint.refactoring]
@@ -202,6 +194,7 @@ select = [
     "PLE",    # Pylint errors
     "PLW",    # Pylint warnings
     "RSE",    # flake8-raise
+    "RUF",    # Ruff-specific rules
     "SLOT",   # flake8-slot
     "T10",    # flake8-debugger
     "UP",     # pyupgrade
@@ -210,11 +203,15 @@ select = [
 ]
 
 ignore = [
-    "E722",     # bare-except
+    "PLC0415",  # import-outside-top-level
+    "PLC1901",  # compare-to-empty-string
+    "PLW1514",  # unspecified-encoding
+    "PLW1641",  # eq-without-hash
     "PLW2901",  # redefined-loop-name
-    "UP028",    # yield-in-for-loop
-    "UP031",    # printf-string-formatting
-    "UP032",    # f-string
+    "RUF005",   # collection-literal-concatenation
+    "RUF015",   # unnecessary-iterable-allocation-for-first-element
+    "RUF039",   # unraw-re-pattern
+    "RUF051",   # if-key-in-dict-del
     "UP037",    # quoted-annotation
     "W191",     # tab-indentation
 ]

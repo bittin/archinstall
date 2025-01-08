@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal, overload
 
 from parted import Device, Disk, DiskException, FileSystem, Geometry, IOException, Partition, PartitionException, freshDisk, getAllDevices, getDevice, newDisk
 
@@ -109,11 +109,8 @@ class DeviceHandler:
 				partition_infos.append(
 					_PartitionInfo.from_partition(
 						partition,
+						lsblk_info,
 						fs_type,
-						lsblk_info.partn,
-						lsblk_info.partuuid,
-						lsblk_info.uuid,
-						lsblk_info.mountpoints,
 						subvol_infos
 					)
 				)
@@ -222,9 +219,12 @@ class DeviceHandler:
 			# "mountpoint": "/mnt/archinstall/.snapshots"
 			# "mountpoints": ["/mnt/archinstall/.snapshots", "/mnt/archinstall/home", ..]
 			# so we'll determine the minimum common path and assume that's the root
-			path_strings = [str(m) for m in lsblk_info.mountpoints]
-			common_prefix = os.path.commonprefix(path_strings)
-			mountpoint = Path(common_prefix)
+			try:
+				common_path = os.path.commonpath(lsblk_info.mountpoints)
+			except ValueError:
+				return subvol_infos
+
+			mountpoint = Path(common_path)
 
 		try:
 			result = SysCommand(f'btrfs subvolume list {mountpoint}').decode()
@@ -239,17 +239,13 @@ class DeviceHandler:
 		# to the corresponding mountpoints
 		btrfs_subvol_info = dict(zip(lsblk_info.fsroots, lsblk_info.mountpoints))
 
-		try:
-			# ID 256 gen 16 top level 5 path @
-			for line in result.splitlines():
-				# expected output format:
-				# ID 257 gen 8 top level 5 path @home
-				name = Path(line.split(' ')[-1])
-				sub_vol_mountpoint = btrfs_subvol_info.get(name, None)
-				subvol_infos.append(_BtrfsSubvolumeInfo(name, sub_vol_mountpoint))
-		except json.decoder.JSONDecodeError as err:
-			error(f"Could not decode lsblk JSON: {result}")
-			raise err
+		# ID 256 gen 16 top level 5 path @
+		for line in result.splitlines():
+			# expected output format:
+			# ID 257 gen 8 top level 5 path @home
+			name = Path(line.split(' ')[-1])
+			sub_vol_mountpoint = btrfs_subvol_info.get('/' / name, None)
+			subvol_infos.append(_BtrfsSubvolumeInfo(name, sub_vol_mountpoint))
 
 		if not lsblk_info.mountpoint:
 			self.umount(dev_path)
@@ -351,7 +347,7 @@ class DeviceHandler:
 		self,
 		cmd: str,
 		info_type: Literal['lv', 'vg', 'pvseg']
-	) -> Any | None:
+	) -> LvmVolumeInfo | LvmGroupInfo | LvmPVInfo | None:
 		raw_info = SysCommand(cmd).decode().split('\n')
 
 		# for whatever reason the output sometimes contains
@@ -389,7 +385,23 @@ class DeviceHandler:
 
 		return None
 
-	def _lvm_info_with_retry(self, cmd: str, info_type: Literal['lv', 'vg', 'pvseg']) -> Any | None:
+	@overload
+	def _lvm_info_with_retry(self, cmd: str, info_type: Literal['lv']) -> LvmVolumeInfo | None:
+		...
+
+	@overload
+	def _lvm_info_with_retry(self, cmd: str, info_type: Literal['vg']) -> LvmGroupInfo | None:
+		...
+
+	@overload
+	def _lvm_info_with_retry(self, cmd: str, info_type: Literal['pvseg']) -> LvmPVInfo | None:
+		...
+
+	def _lvm_info_with_retry(
+		self,
+		cmd: str,
+		info_type: Literal['lv', 'vg', 'pvseg']
+	) -> LvmVolumeInfo | LvmGroupInfo | LvmPVInfo | None:
 		while True:
 			try:
 				return self._lvm_info(cmd, info_type)
@@ -583,12 +595,12 @@ class DeviceHandler:
 
 		self.mount(path, self._TMP_BTRFS_MOUNT, create_target_mountpoint=True)
 
-		for sub_vol in btrfs_subvols:
+		for sub_vol in sorted(btrfs_subvols, key=lambda x: x.name):
 			debug(f'Creating subvolume: {sub_vol.name}')
 
 			subvol_path = self._TMP_BTRFS_MOUNT / sub_vol.name
 
-			SysCommand(f"btrfs subvolume create {subvol_path}")
+			SysCommand(f"btrfs subvolume create -p {subvol_path}")
 
 			if BtrfsMountOption.nodatacow.value in mount_options:
 				try:
@@ -637,12 +649,12 @@ class DeviceHandler:
 			options=part_mod.mount_options
 		)
 
-		for sub_vol in part_mod.btrfs_subvols:
+		for sub_vol in sorted(part_mod.btrfs_subvols, key=lambda x: x.name):
 			debug(f'Creating subvolume: {sub_vol.name}')
 
 			subvol_path = self._TMP_BTRFS_MOUNT / sub_vol.name
 
-			SysCommand(f"btrfs subvolume create {subvol_path}")
+			SysCommand(f"btrfs subvolume create -p {subvol_path}")
 
 		self.umount(dev_path)
 
