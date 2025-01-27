@@ -72,7 +72,7 @@ class Installer:
 		if accessibility_tools_in_use():
 			self._base_packages.extend(__accessibility_packages__)
 
-		self.post_base_install: list[Callable] = []
+		self.post_base_install: list[Callable] = []  # type: ignore[type-arg]
 
 		# TODO: Figure out which one of these two we'll use.. But currently we're mixing them..
 		storage['session'] = self
@@ -242,7 +242,7 @@ class Installer:
 				break
 
 		for mod in sorted_device_mods:
-			not_pv_part_mods = list(filter(lambda x: x not in pvs, mod.partitions))
+			not_pv_part_mods = [p for p in mod.partitions if p not in pvs]
 
 			# partitions have to mounted in the right order on btrfs the mountpoint will
 			# be empty as the actual subvolumes are getting mounted instead so we'll use
@@ -315,17 +315,21 @@ class Installer:
 		}
 
 	def _mount_partition(self, part_mod: disk.PartitionModification) -> None:
+		if not part_mod.dev_path:
+			return
+
 		# it would be none if it's btrfs as the subvolumes will have the mountpoints defined
-		if part_mod.mountpoint and part_mod.dev_path:
+		if part_mod.mountpoint:
 			target = self.target / part_mod.relative_mountpoint
 			disk.device_handler.mount(part_mod.dev_path, target, options=part_mod.mount_options)
-
-		if part_mod.fs_type == disk.FilesystemType.Btrfs and part_mod.dev_path:
+		elif part_mod.fs_type == disk.FilesystemType.Btrfs:
 			self._mount_btrfs_subvol(
 				part_mod.dev_path,
 				part_mod.btrfs_subvols,
 				part_mod.mount_options
 			)
+		elif part_mod.is_swap():
+			disk.device_handler.swapon(part_mod.dev_path)
 
 	def _mount_lvm_vol(self, volume: disk.LvmVolume) -> None:
 		if volume.fs_type != disk.FilesystemType.Btrfs:
@@ -363,8 +367,8 @@ class Installer:
 	) -> None:
 		for subvol in sorted(subvolumes, key=lambda x: x.relative_mountpoint):
 			mountpoint = self.target / subvol.relative_mountpoint
-			mount_options = mount_options + [f'subvol={subvol.name}']
-			disk.device_handler.mount(dev_path, mountpoint, options=mount_options)
+			options = mount_options + [f'subvol={subvol.name}']
+			disk.device_handler.mount(dev_path, mountpoint, options=options)
 
 	def generate_key_files(self) -> None:
 		match self._disk_encryption.encryption_type:
@@ -451,7 +455,7 @@ class Installer:
 		if enable_resume:
 			resume_uuid = SysCommand(f'findmnt -no UUID -T {self.target}{file}').decode()
 			resume_offset = SysCommand(
-				f'/usr/bin/filefrag -v {self.target}{file}'
+				f'filefrag -v {self.target}{file}'
 			).decode().split('0:', 1)[1].split(":", 1)[1].split("..", 1)[0].strip()
 
 			self._hooks.append('resume')
@@ -499,7 +503,7 @@ class Installer:
 		info(f"Updating {fstab_path}")
 
 		try:
-			gen_fstab = SysCommand(f'/usr/bin/genfstab {flags} {self.target}').output()
+			gen_fstab = SysCommand(f'genfstab {flags} {self.target}').output()
 		except SysCallError as err:
 			raise RequirementError(
 				f'Could not generate fstab, strapping in packages most likely failed (disk out of space?)\n Error: {err}')
@@ -561,7 +565,7 @@ class Installer:
 			return False
 
 		try:
-			SysCommand(f'/usr/bin/arch-chroot {self.target} locale-gen')
+			SysCommand(f'arch-chroot {self.target} locale-gen')
 		except SysCallError as e:
 			error(f'Failed to run locale-gen on target: {e}')
 			return False
@@ -582,7 +586,7 @@ class Installer:
 
 		if (Path("/usr") / "share" / "zoneinfo" / zone).exists():
 			(Path(self.target) / "etc" / "localtime").unlink(missing_ok=True)
-			SysCommand(f'/usr/bin/arch-chroot {self.target} ln -s /usr/share/zoneinfo/{zone} /etc/localtime')
+			SysCommand(f'arch-chroot {self.target} ln -s /usr/share/zoneinfo/{zone} /etc/localtime')
 			return True
 
 		else:
@@ -620,7 +624,7 @@ class Installer:
 					plugin.on_service(service)
 
 	def run_command(self, cmd: str, *args: str, **kwargs: str) -> SysCommand:
-		return SysCommand(f'/usr/bin/arch-chroot {self.target} {cmd}')
+		return SysCommand(f'arch-chroot {self.target} {cmd}')
 
 	def arch_chroot(self, cmd: str, run_as: str | None = None) -> SysCommand:
 		if run_as:
@@ -629,7 +633,7 @@ class Installer:
 		return self.run_command(cmd)
 
 	def drop_to_shell(self) -> None:
-		subprocess.check_call(f"/usr/bin/arch-chroot {self.target}", shell=True)
+		subprocess.check_call(f"arch-chroot {self.target}", shell=True)
 
 	def configure_nic(self, nic: Nic) -> None:
 		conf = nic.as_systemd_config()
@@ -723,7 +727,7 @@ class Installer:
 			mkinit.write(content)
 
 		try:
-			SysCommand(f'/usr/bin/arch-chroot {self.target} mkinitcpio {" ".join(flags)}', peek_output=True)
+			SysCommand(f'arch-chroot {self.target} mkinitcpio {" ".join(flags)}', peek_output=True)
 			return True
 		except SysCallError as e:
 			if e.worker:
@@ -736,78 +740,37 @@ class Installer:
 				return vendor.get_ucode()
 		return None
 
-	def _handle_partition_installation(self) -> None:
-		pvs = []
-		if self._disk_config.lvm_config:
-			pvs = self._disk_config.lvm_config.get_all_pvs()
+	def _prepare_fs_type(
+		self,
+		fs_type: disk.FilesystemType,
+		mountpoint: Path | None
+	) -> None:
+		if (pkg := fs_type.installation_pkg) is not None:
+			self._base_packages.append(pkg)
+		if (module := fs_type.installation_module) is not None:
+			self._modules.append(module)
+		if (binary := fs_type.installation_binary) is not None:
+			self._binaries.append(binary)
 
-		for mod in self._disk_config.device_modifications:
-			for part in mod.partitions:
-				if part in pvs or part.fs_type is None:
-					continue
+		# https://github.com/archlinux/archinstall/issues/1837
+		if fs_type.fs_type_mount == 'btrfs':
+			self._disable_fstrim = True
 
-				if (pkg := part.fs_type.installation_pkg) is not None:
-					self._base_packages.append(pkg)
-				if (module := part.fs_type.installation_module) is not None:
-					self._modules.append(module)
-				if (binary := part.fs_type.installation_binary) is not None:
-					self._binaries.append(binary)
+		# There is not yet an fsck tool for NTFS. If it's being used for the root filesystem, the hook should be removed.
+		if fs_type.fs_type_mount == 'ntfs3' and mountpoint == self.target:
+			if 'fsck' in self._hooks:
+				self._hooks.remove('fsck')
 
-				# https://github.com/archlinux/archinstall/issues/1837
-				if part.fs_type.fs_type_mount == 'btrfs':
-					self._disable_fstrim = True
+	def _prepare_encrypt(self, before: str = 'filesystems') -> None:
+		if self._disk_encryption.hsm_device:
+			# Required by mkinitcpio to add support for fido2-device options
+			self.pacman.strap('libfido2')
 
-				# There is not yet an fsck tool for NTFS. If it's being used for the root filesystem, the hook should be removed.
-				if part.fs_type.fs_type_mount == 'ntfs3' and part.mountpoint == self.target:
-					if 'fsck' in self._hooks:
-						self._hooks.remove('fsck')
-
-				if part in self._disk_encryption.partitions:
-					if self._disk_encryption.hsm_device:
-						# Required by mkinitcpio to add support for fido2-device options
-						self.pacman.strap('libfido2')
-
-						if 'sd-encrypt' not in self._hooks:
-							self._hooks.insert(self._hooks.index('filesystems'), 'sd-encrypt')
-					else:
-						if 'encrypt' not in self._hooks:
-							self._hooks.insert(self._hooks.index('filesystems'), 'encrypt')
-
-	def _handle_lvm_installation(self) -> None:
-		if not self._disk_config.lvm_config:
-			return
-
-		self.add_additional_packages('lvm2')
-		self._hooks.insert(self._hooks.index('filesystems') - 1, 'lvm2')
-
-		for vg in self._disk_config.lvm_config.vol_groups:
-			for vol in vg.volumes:
-				if vol.fs_type is not None:
-					if (pkg := vol.fs_type.installation_pkg) is not None:
-						self._base_packages.append(pkg)
-					if (module := vol.fs_type.installation_module) is not None:
-						self._modules.append(module)
-					if (binary := vol.fs_type.installation_binary) is not None:
-						self._binaries.append(binary)
-
-					if vol.fs_type.fs_type_mount == 'btrfs':
-						self._disable_fstrim = True
-
-					# There is not yet an fsck tool for NTFS. If it's being used for the root filesystem, the hook should be removed.
-					if vol.fs_type.fs_type_mount == 'ntfs3' and vol.mountpoint == self.target:
-						if 'fsck' in self._hooks:
-							self._hooks.remove('fsck')
-
-		if self._disk_encryption.encryption_type in [disk.EncryptionType.LvmOnLuks, disk.EncryptionType.LuksOnLvm]:
-			if self._disk_encryption.hsm_device:
-				# Required by mkinitcpio to add support for fido2-device options
-				self.pacman.strap('libfido2')
-
-				if 'sd-encrypt' not in self._hooks:
-					self._hooks.insert(self._hooks.index('lvm2'), 'sd-encrypt')
-			else:
-				if 'encrypt' not in self._hooks:
-					self._hooks.insert(self._hooks.index('lvm2'), 'encrypt')
+			if 'sd-encrypt' not in self._hooks:
+				self._hooks.insert(self._hooks.index(before), 'sd-encrypt')
+		else:
+			if 'encrypt' not in self._hooks:
+				self._hooks.insert(self._hooks.index(before), 'encrypt')
 
 	def minimal_installation(
 		self,
@@ -818,9 +781,28 @@ class Installer:
 		locale_config: LocaleConfiguration = LocaleConfiguration.default()
 	):
 		if self._disk_config.lvm_config:
-			self._handle_lvm_installation()
+			lvm = 'lvm2'
+			self.add_additional_packages(lvm)
+			self._hooks.insert(self._hooks.index('filesystems') - 1, lvm)
+
+			for vg in self._disk_config.lvm_config.vol_groups:
+				for vol in vg.volumes:
+					if vol.fs_type is not None:
+						self._prepare_fs_type(vol.fs_type, vol.mountpoint)
+
+			types = (disk.EncryptionType.LvmOnLuks, disk.EncryptionType.LuksOnLvm)
+			if self._disk_encryption.encryption_type in types:
+				self._prepare_encrypt(lvm)
 		else:
-			self._handle_partition_installation()
+			for mod in self._disk_config.device_modifications:
+				for part in mod.partitions:
+					if part.fs_type is None:
+						continue
+
+					self._prepare_fs_type(part.fs_type, part.mountpoint)
+
+					if part in self._disk_encryption.partitions:
+						self._prepare_encrypt()
 
 		if not SysInfo.has_uefi():
 			self._base_packages.append('grub')
@@ -865,8 +847,8 @@ class Installer:
 
 		# TODO: Support locale and timezone
 		# os.remove(f'{self.target}/etc/localtime')
-		# sys_command(f'/usr/bin/arch-chroot {self.target} ln -s /usr/share/zoneinfo/{localtime} /etc/localtime')
-		# sys_command('/usr/bin/arch-chroot /mnt hwclock --hctosys --localtime')
+		# sys_command(f'arch-chroot {self.target} ln -s /usr/share/zoneinfo/{localtime} /etc/localtime')
+		# sys_command('arch-chroot /mnt hwclock --hctosys --localtime')
 		if hostname:
 			self.set_hostname(hostname)
 
@@ -874,7 +856,7 @@ class Installer:
 		self.set_keyboard_language(locale_config.kb_layout)
 
 		# TODO: Use python functions for this
-		SysCommand(f'/usr/bin/arch-chroot {self.target} chmod 700 /root')
+		SysCommand(f'arch-chroot {self.target} chmod 700 /root')
 
 		if mkinitcpio and not self.mkinitcpio(['-P']):
 			error('Error generating initramfs (continuing anyway)')
@@ -1071,10 +1053,10 @@ class Installer:
 
 		# Install the boot loader
 		try:
-			SysCommand(f"/usr/bin/arch-chroot {self.target} bootctl {' '.join(bootctl_options)} install")
+			SysCommand(f"arch-chroot {self.target} bootctl {' '.join(bootctl_options)} install")
 		except SysCallError:
 			# Fallback, try creating the boot loader without touching the EFI variables
-			SysCommand(f"/usr/bin/arch-chroot {self.target} bootctl --no-variables {' '.join(bootctl_options)} install")
+			SysCommand(f"arch-chroot {self.target} bootctl --no-variables {' '.join(bootctl_options)} install")
 
 		# Ensure that the $BOOT/loader/ directory exists before we try to create files in it.
 		#
@@ -1159,7 +1141,7 @@ class Installer:
 		config = grub_default.read_text()
 
 		kernel_parameters = ' '.join(self._get_kernel_params(root, False, False))
-		config = re.sub(r'(GRUB_CMDLINE_LINUX=")("\n)', rf'\1{kernel_parameters}\2', config, 1)
+		config = re.sub(r'(GRUB_CMDLINE_LINUX=")("\n)', rf'\1{kernel_parameters}\2', config, count=1)
 
 		grub_default.write_text(config)
 
@@ -1168,7 +1150,7 @@ class Installer:
 		boot_dir = Path('/boot')
 
 		command = [
-			'/usr/bin/arch-chroot',
+			'arch-chroot',
 			str(self.target),
 			'grub-install',
 			'--debug'
@@ -1222,7 +1204,7 @@ class Installer:
 
 		try:
 			SysCommand(
-				f'/usr/bin/arch-chroot {self.target} '
+				f'arch-chroot {self.target} '
 				f'grub-mkconfig -o {boot_dir}/grub/grub.cfg'
 			)
 		except SysCallError as err:
@@ -1277,7 +1259,7 @@ class Installer:
 				shutil.copy(limine_path / 'limine-bios.sys', self.target / 'boot')
 
 				# `limine bios-install` deploys the stage 1 and 2 to the disk.
-				SysCommand(f'/usr/bin/arch-chroot {self.target} limine bios-install {parent_dev_path}', peek_output=True)
+				SysCommand(f'arch-chroot {self.target} limine bios-install {parent_dev_path}', peek_output=True)
 			except Exception as err:
 				raise DiskError(f'Failed to install Limine on {parent_dev_path}: {err}')
 
@@ -1523,7 +1505,7 @@ Exec = /bin/sh -c "{hook_command}"
 		if not handled_by_plugin:
 			info(f'Creating user {user}')
 			try:
-				SysCommand(f'/usr/bin/arch-chroot {self.target} useradd -m -G wheel {user}')
+				SysCommand(f'arch-chroot {self.target} useradd -m -G wheel {user}')
 			except SysCallError as err:
 				raise SystemError(f"Could not create user inside installation: {err}")
 
@@ -1537,7 +1519,7 @@ Exec = /bin/sh -c "{hook_command}"
 
 		if groups:
 			for group in groups:
-				SysCommand(f'/usr/bin/arch-chroot {self.target} gpasswd -a {user} {group}')
+				SysCommand(f'arch-chroot {self.target} gpasswd -a {user} {group}')
 
 		if sudo and self.enable_sudo(user):
 			self.helper_flags['user'] = True
@@ -1554,7 +1536,7 @@ Exec = /bin/sh -c "{hook_command}"
 		sh = shlex.join(['sh', '-c', echo])
 
 		try:
-			SysCommand(f"/usr/bin/arch-chroot {self.target} " + sh[:-1] + " | chpasswd'")
+			SysCommand(f"arch-chroot {self.target} " + sh[:-1] + " | chpasswd'")
 			return True
 		except SysCallError:
 			return False
@@ -1563,7 +1545,7 @@ Exec = /bin/sh -c "{hook_command}"
 		info(f'Setting shell for {user} to {shell}')
 
 		try:
-			SysCommand(f"/usr/bin/arch-chroot {self.target} sh -c \"chsh -s {shell} {user}\"")
+			SysCommand(f"arch-chroot {self.target} sh -c \"chsh -s {shell} {user}\"")
 			return True
 		except SysCallError:
 			return False
@@ -1571,7 +1553,7 @@ Exec = /bin/sh -c "{hook_command}"
 	def chown(self, owner: str, path: str, options: list[str] = []) -> bool:
 		cleaned_path = path.replace('\'', '\\\'')
 		try:
-			SysCommand(f"/usr/bin/arch-chroot {self.target} sh -c 'chown {' '.join(options)} {owner} {cleaned_path}'")
+			SysCommand(f"arch-chroot {self.target} sh -c 'chown {' '.join(options)} {owner} {cleaned_path}'")
 			return True
 		except SysCallError:
 			return False
@@ -1588,7 +1570,7 @@ Exec = /bin/sh -c "{hook_command}"
 			# Setting an empty keymap first, allows the subsequent call to set layout for both console and x11.
 			from .boot import Boot
 			with Boot(self) as session:
-				os.system('/usr/bin/systemd-run --machine=archinstall --pty localectl set-keymap ""')
+				os.system('systemd-run --machine=archinstall --pty localectl set-keymap ""')
 
 				try:
 					session.SysCommand(["localectl", "set-keymap", language])
@@ -1633,7 +1615,7 @@ Exec = /bin/sh -c "{hook_command}"
 		last_execution_time = SysCommand(
 			f"systemctl show --property=ActiveEnterTimestamp --no-pager {service_name}",
 			environment_vars={'SYSTEMD_COLORS': '0'}
-		).decode().lstrip('ActiveEnterTimestamp=')
+		).decode().removeprefix('ActiveEnterTimestamp=')
 
 		if not last_execution_time:
 			return None
