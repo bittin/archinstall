@@ -11,11 +11,15 @@ from urllib.request import Request, urlopen
 
 from pydantic.dataclasses import dataclass as p_dataclass
 
-from archinstall.lib.mirrors import MirrorConfiguration
-from archinstall.lib.models import AudioConfiguration, Bootloader, NetworkConfiguration, User
+from archinstall.lib.models.audio_configuration import AudioConfiguration
+from archinstall.lib.models.bootloader import Bootloader
 from archinstall.lib.models.device_model import DiskEncryption, DiskLayoutConfiguration
+from archinstall.lib.models.gen import Repository
 from archinstall.lib.models.locale import LocaleConfiguration
+from archinstall.lib.models.mirrors import MirrorConfiguration
+from archinstall.lib.models.network_configuration import NetworkConfiguration
 from archinstall.lib.models.profile_model import ProfileConfiguration
+from archinstall.lib.models.users import User
 from archinstall.lib.output import error, warn
 from archinstall.lib.plugins import load_plugin
 from archinstall.lib.storage import storage
@@ -61,7 +65,6 @@ class ArchConfig:
 	parallel_downloads: int = 0
 	swap: bool = True
 	timezone: str = 'UTC'
-	additional_repositories: list[str] = field(default_factory=list)
 	services: list[str] = field(default_factory=list)
 	custom_commands: list[str] = field(default_factory=list)
 
@@ -92,7 +95,6 @@ class ArchConfig:
 			'parallel_downloads': self.parallel_downloads,
 			'swap': self.swap,
 			'timezone': self.timezone,
-			'additional-repositories': self.additional_repositories,
 			'services': self.services,
 			'custom_commands': self.custom_commands,
 			'bootloader': self.bootloader.json(),
@@ -135,7 +137,14 @@ class ArchConfig:
 			arch_config.profile_config = ProfileConfiguration.parse_arg(profile_config)
 
 		if mirror_config := args_config.get('mirror_config', None):
-			arch_config.mirror_config = MirrorConfiguration.parse_args(mirror_config)
+			backwards_compatible_repo = []
+			if additional_repositories := args_config.get('additional-repositories', []):
+				backwards_compatible_repo = [Repository(r) for r in additional_repositories]
+
+			arch_config.mirror_config = MirrorConfiguration.parse_args(
+				mirror_config,
+				backwards_compatible_repo
+			)
 
 		if net_config := args_config.get('network_config', None):
 			arch_config.network_config = NetworkConfiguration.parse_arg(net_config)
@@ -180,9 +189,6 @@ class ArchConfig:
 
 		if timezone := args_config.get('timezone', 'UTC'):
 			arch_config.timezone = timezone
-
-		if additional_repositories := args_config.get('additional-repositories', []):
-			arch_config.additional_repositories = additional_repositories
 
 		if services := args_config.get('services', []):
 			arch_config.services = services

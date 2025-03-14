@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
-from archinstall.tui import Chars, FrameProperties, FrameStyle, MenuItem, MenuItemGroup, PreviewStyle, ResultType, SelectMenu, Tui
+from archinstall.tui.curses_menu import SelectMenu, Tui
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.types import Chars, FrameProperties, FrameStyle, PreviewStyle, ResultType
 
 from ..output import error
 
@@ -35,7 +37,7 @@ class AbstractMenu:
 
 		self._sync_from_config()
 
-	def __enter__(self, *args: Any, **kwargs: Any) -> AbstractMenu:
+	def __enter__(self, *args: Any, **kwargs: Any) -> Self:
 		self.is_context_mgr = True
 		return self
 

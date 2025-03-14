@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archinstall.lib.models.gen import Repository
-from archinstall.lib.packages import list_available_packages
-from archinstall.tui import Alignment, EditMenu, FrameProperties, MenuItem, MenuItemGroup, Orientation, PreviewStyle, ResultType, SelectMenu, Tui
+from archinstall.lib.packages.packages import list_available_packages
+from archinstall.tui.curses_menu import EditMenu, SelectMenu, Tui
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.types import Alignment, FrameProperties, Orientation, PreviewStyle, ResultType
 
-from ..locale import list_timezones
+from ..locale.utils import list_timezones
 from ..models.audio_configuration import Audio, AudioConfiguration
 from ..models.gen import AvailablePackage
 from ..output import warn
@@ -168,15 +170,14 @@ def ask_additional_packages_to_install(
 	preset: list[str] = [],
 	repositories: set[Repository] = set()
 ) -> list[str]:
-	Tui.print('Loading packages...', clear_screen=True)
+	Tui.print(str(_('Loading packages...')), clear_screen=True)
 
 	repositories |= {Repository.Core, Repository.Extra}
 	packages = list_available_packages(tuple(repositories))
 
 	# Additional packages (with some light weight error handling for invalid package names)
 	header = str(_('Only packages such as base, base-devel, linux, linux-firmware, efibootmgr and optional profile packages are installed.')) + '\n'
-	header += str(_('If you desire a web browser, such as firefox or chromium, you may specify it in the following prompt.')) + '\n'
-	header += str(_('Write additional packages to install (space separated, leave blank to skip)')) + '\n'
+	header += str(_('Select any packages from the below list that should be installed additionally')) + '\n'
 
 	# there are over 15k packages so this needs to be quick
 	preset_packages = []
@@ -264,37 +265,6 @@ def add_number_of_parallel_downloads(preset: int | None = None) -> int | None:
 				fwrite.write(f"{line}\n")
 
 	return downloads
-
-
-def select_additional_repositories(preset: list[str]) -> list[str]:
-	"""
-	Allows the user to select additional repositories (multilib, and testing) if desired.
-
-	:return: The string as a selected repository
-	:rtype: string
-	"""
-
-	repositories = ["multilib", "testing"]
-	items = [MenuItem(r, value=r) for r in repositories]
-	group = MenuItemGroup(items, sort_items=True)
-	group.set_selected_by_value(preset)
-
-	result = SelectMenu(
-		group,
-		alignment=Alignment.CENTER,
-		frame=FrameProperties.min('Additional repositories'),
-		allow_reset=True,
-		allow_skip=True,
-		multi=True
-	).run()
-
-	match result.type_:
-		case ResultType.Skip:
-			return preset
-		case ResultType.Reset:
-			return []
-		case ResultType.Selection:
-			return result.get_values()
 
 
 def ask_chroot() -> bool:

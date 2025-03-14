@@ -27,9 +27,54 @@ from .device_model import (
 	Unit,
 	_DeviceInfo,
 )
-from .gen import LocalPackage, PackageSearch, PackageSearchResult
+from .gen import LocalPackage, PackageSearch, PackageSearchResult, Repository
 from .locale import LocaleConfiguration
-from .mirrors import CustomMirror, MirrorConfiguration, MirrorRegion
+from .mirrors import CustomRepository, MirrorConfiguration, MirrorRegion
 from .network_configuration import NetworkConfiguration, Nic, NicType
 from .profile_model import ProfileConfiguration
 from .users import PasswordStrength, User
+
+__all__ = [
+	'Audio',
+	'AudioConfiguration',
+	'BDevice',
+	'Bootloader',
+	'CustomRepository',
+	'DeviceGeometry',
+	'DeviceModification',
+	'DiskEncryption',
+	'DiskLayoutConfiguration',
+	'DiskLayoutType',
+	'EncryptionType',
+	'Fido2Device',
+	'FilesystemType',
+	'LocalPackage',
+	'LocaleConfiguration',
+	'LsblkInfo',
+	'LvmConfiguration',
+	'LvmLayoutType',
+	'LvmVolume',
+	'LvmVolumeGroup',
+	'LvmVolumeStatus',
+	'MirrorConfiguration',
+	'MirrorRegion',
+	'ModificationStatus',
+	'NetworkConfiguration',
+	'Nic',
+	'NicType',
+	'PackageSearch',
+	'PackageSearchResult',
+	'PartitionFlag',
+	'PartitionModification',
+	'PartitionTable',
+	'PartitionType',
+	'PasswordStrength',
+	'ProfileConfiguration',
+	'Repository',
+	'SectorSize',
+	'Size',
+	'SubvolumeModification',
+	'Unit',
+	'User',
+	'_DeviceInfo',
+]

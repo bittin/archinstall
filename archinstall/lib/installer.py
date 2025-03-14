@@ -25,27 +25,30 @@ from archinstall.lib.models.device_model import (
 	SubvolumeModification,
 	Unit,
 )
+from archinstall.lib.models.gen import Repository
 from archinstall.tui.curses_menu import Tui
 
-from . import pacman
 from .args import arch_config_handler
 from .exceptions import DiskError, HardwareIncompatibilityError, RequirementError, ServiceException, SysCallError
 from .general import SysCommand
 from .hardware import SysInfo
-from .locale import verify_keyboard_layout, verify_x11_keyboard_layout
+from .locale.utils import verify_keyboard_layout, verify_x11_keyboard_layout
 from .luks import Luks2
-from .mirrors import MirrorConfiguration
 from .models.bootloader import Bootloader
 from .models.locale import LocaleConfiguration
+from .models.mirrors import MirrorConfiguration
 from .models.network_configuration import Nic
 from .models.users import User
 from .output import debug, error, info, log, warn
 from .pacman import Pacman
+from .pacman.config import Config
 from .plugins import plugins
 from .storage import storage
 
 if TYPE_CHECKING:
-	_: Any
+	from archinstall.lib.translationhandler import DeferredTranslation
+
+	_: Callable[[str], DeferredTranslation]
 
 # Any package that the Installer() is responsible for (optional and the default ones)
 __packages__ = ["base", "base-devel", "linux-firmware", "linux", "linux-lts", "linux-zen", "linux-hardened"]
@@ -80,7 +83,7 @@ class Installer:
 
 		self.init_time = time.strftime('%Y-%m-%d_%H-%M-%S')
 		self.milliseconds = int(str(time.time()).split('.')[1])
-		self.helper_flags: dict[str, Any] = {'base': False, 'bootloader': None}
+		self.helper_flags: dict[str, str | bool | None] = {'base': False, 'bootloader': None}
 
 		for kernel in self.kernels:
 			self._base_packages.append(kernel)
@@ -162,23 +165,21 @@ class Installer:
 		"""
 
 		if not arch_config_handler.args.skip_ntp:
-			info(_('Waiting for time sync (timedatectl show) to complete.'))
+			info(str(_('Waiting for time sync (timedatectl show) to complete.')))
 
 			started_wait = time.time()
 			notified = False
 			while True:
 				if not notified and time.time() - started_wait > 5:
 					notified = True
-					warn(
-						_("Time synchronization not completing, while you wait - check the docs for workarounds: https://archinstall.readthedocs.io/"))
+					warn(str(_("Time synchronization not completing, while you wait - check the docs for workarounds: https://archinstall.readthedocs.io/")))
 
 				time_val = SysCommand('timedatectl show --property=NTPSynchronized --value').decode()
 				if time_val and time_val.strip() == 'yes':
 					break
 				time.sleep(1)
 		else:
-			info(
-				_('Skipping waiting for automatic time sync (this can cause issues if time is out of sync during installation)'))
+			info(str(_('Skipping waiting for automatic time sync (this can cause issues if time is out of sync during installation)')))
 
 		info('Waiting for automatic mirror selection (reflector) to complete.')
 		while self._service_state('reflector') not in ('dead', 'failed', 'exited'):
@@ -188,7 +189,7 @@ class Installer:
 		# while self._service_state('pacman-init') not in ('dead', 'failed', 'exited'):
 		# 	time.sleep(1)
 
-		info(_('Waiting for Arch Linux keyring sync (archlinux-keyring-wkd-sync) to complete.'))
+		info(str(_('Waiting for Arch Linux keyring sync (archlinux-keyring-wkd-sync) to complete.')))
 		# Wait for the timer to kick in
 		while self._service_started('archlinux-keyring-wkd-sync.timer') is None:
 			time.sleep(1)
@@ -482,7 +483,11 @@ class Installer:
 	def post_install_check(self, *args: str, **kwargs: str) -> list[str]:
 		return [step for step, flag in self.helper_flags.items() if flag is False]
 
-	def set_mirrors(self, mirror_config: MirrorConfiguration, on_target: bool = False) -> None:
+	def set_mirrors(
+		self,
+		mirror_config: MirrorConfiguration,
+		on_target: bool = False
+	) -> None:
 		"""
 		Set the mirror configuration for the installation.
 
@@ -492,28 +497,35 @@ class Installer:
 		:on_target: Whether to set the mirrors on the target system or the live system.
 		:param on_target: bool
 		"""
-		debug('Setting mirrors')
+		debug('Setting mirrors on ' + ('target' if on_target else 'live system'))
 
 		for plugin in plugins.values():
 			if hasattr(plugin, 'on_mirrors'):
 				if result := plugin.on_mirrors(mirror_config):
 					mirror_config = result
 
-		mirrorlist_config = mirror_config.mirrorlist_config(speed_sort=True)
-		pacman_config = mirror_config.pacman_config()
-
 		root = self.target if on_target else Path('/')
+		mirrorlist_config = (root / 'etc/pacman.d/mirrorlist')
+		pacman_config = root / 'etc/pacman.conf'
 
-		if pacman_config:
-			debug(f'Pacman config: {pacman_config}')
+		repositories_config = mirror_config.repositories_config()
+		if repositories_config:
+			debug(f'Pacman config: {repositories_config}')
 
-			with open(root / 'etc/pacman.conf', 'a') as fp:
-				fp.write(pacman_config)
+			with open(pacman_config, 'a') as fp:
+				fp.write(repositories_config)
 
-		if mirrorlist_config:
-			debug(f'Mirrorlist: {mirrorlist_config}')
+		regions_config = mirror_config.regions_config(speed_sort=True)
+		if regions_config:
+			debug(f'Mirrorlist:\n{regions_config}')
+			mirrorlist_config.write_text(regions_config)
 
-			(root / 'etc/pacman.d/mirrorlist').write_text(mirrorlist_config)
+		custom_servers = mirror_config.custom_servers_config()
+		if custom_servers:
+			debug(f'Custom servers:\n{custom_servers}')
+
+			content = mirrorlist_config.read_text()
+			mirrorlist_config.write_text(f'{custom_servers}\n\n{content}')
 
 	def genfstab(self, flags: str = '-pU') -> None:
 		fstab_path = self.target / "etc" / "fstab"
@@ -747,8 +759,8 @@ class Installer:
 			SysCommand(f'arch-chroot {self.target} mkinitcpio {" ".join(flags)}', peek_output=True)
 			return True
 		except SysCallError as e:
-			if e.worker:
-				log(e.worker._trace_log.decode())
+			if e.worker_log:
+				log(e.worker_log.decode())
 			return False
 
 	def _get_microcode(self) -> Path | None:
@@ -791,8 +803,7 @@ class Installer:
 
 	def minimal_installation(
 		self,
-		testing: bool = False,
-		multilib: bool = False,
+		optional_repositories: list[Repository] = [],
 		mkinitcpio: bool = True,
 		hostname: str | None = None,
 		locale_config: LocaleConfiguration | None = LocaleConfiguration.default()
@@ -821,30 +832,17 @@ class Installer:
 					if part in self._disk_encryption.partitions:
 						self._prepare_encrypt()
 
-		if not SysInfo.has_uefi():
-			self._base_packages.append('grub')
-
 		if ucode := self._get_microcode():
 			(self.target / 'boot' / ucode).unlink(missing_ok=True)
 			self._base_packages.append(ucode.stem)
 		else:
 			debug('Archinstall will not install any ucode.')
 
-		# Determine whether to enable multilib/testing repositories before running pacstrap if testing flag is set.
+		debug(f'Optional repositories: {optional_repositories}')
+
 		# This action takes place on the host system as pacstrap copies over package repository lists.
-		pacman_conf = pacman.Config(self.target)
-		if multilib:
-			info("The multilib flag is set. This system will be installed with the multilib repository enabled.")
-			pacman_conf.enable(pacman.Repo.MULTILIB)
-		else:
-			info("The multilib flag is not set. This system will be installed without multilib repositories enabled.")
-
-		if testing:
-			info("The testing flag is set. This system will be installed with testing repositories enabled.")
-			pacman_conf.enable(pacman.Repo.TESTING)
-		else:
-			info("The testing flag is not set. This system will be installed without testing repositories enabled.")
-
+		pacman_conf = Config(self.target)
+		pacman_conf.enable(optional_repositories)
 		pacman_conf.apply()
 
 		self.pacman.strap(self._base_packages)
@@ -1153,7 +1151,7 @@ class Installer:
 	) -> None:
 		debug('Installing grub bootloader')
 
-		self.pacman.strap('grub')  # no need?
+		self.pacman.strap('grub')
 
 		grub_default = self.target / 'etc/default/grub'
 		config = grub_default.read_text()
@@ -1234,7 +1232,8 @@ class Installer:
 		self,
 		boot_partition: PartitionModification,
 		efi_partition: PartitionModification | None,
-		root: PartitionModification | LvmVolume
+		root: PartitionModification | LvmVolume,
+		uki_enabled: bool = False
 	) -> None:
 		debug('Installing limine bootloader')
 
@@ -1309,12 +1308,19 @@ Exec = /bin/sh -c "{hook_command}"
 
 		for kernel in self.kernels:
 			for variant in ('', '-fallback'):
-				entry = [
-					'protocol: linux',
-					f'kernel_path: boot():/vmlinuz-{kernel}',
-					f'kernel_cmdline: {kernel_params}',
-					f'module_path: boot():/initramfs-{kernel}{variant}.img',
-				]
+				if uki_enabled:
+					entry = [
+						'protocol: efi',
+						f'path: boot():/EFI/Linux/arch-{kernel}.efi',
+						f'cmdline: {kernel_params}',
+					]
+				else:
+					entry = [
+						'protocol: linux',
+						f'path: boot():/vmlinuz-{kernel}',
+						f'cmdline: {kernel_params}',
+						f'module_path: boot():/initramfs-{kernel}{variant}.img',
+					]
 
 				config_contents += f'\n/Arch Linux ({kernel}{variant})\n'
 				config_contents += '\n'.join([f'    {it}' for it in entry]) + '\n'
@@ -1466,7 +1472,7 @@ Exec = /bin/sh -c "{hook_command}"
 			case Bootloader.Efistub:
 				self._add_efistub_bootloader(boot_partition, root, uki_enabled)
 			case Bootloader.Limine:
-				self._add_limine_bootloader(boot_partition, efi_partition, root)
+				self._add_limine_bootloader(boot_partition, efi_partition, root, uki_enabled)
 
 	def add_additional_packages(self, packages: str | list[str]) -> None:
 		return self.pacman.strap(packages)

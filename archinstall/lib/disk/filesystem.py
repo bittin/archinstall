@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from archinstall.tui import Tui
+from archinstall.tui.curses_menu import Tui
 
 from ..interactions.general_conf import ask_abort
 from ..luks import Luks2
@@ -352,7 +352,7 @@ class FilesystemHandler:
 		Tui.print(out, row=0, endl='', clear_screen=True)
 
 		try:
-			countdown = '\n5...4...3...2...1'
+			countdown = '\n5...4...3...2...1\n'
 			for c in countdown:
 				Tui.print(c, row=0, endl='')
 				time.sleep(0.25)

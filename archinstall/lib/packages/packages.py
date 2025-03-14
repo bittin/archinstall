@@ -1,7 +1,6 @@
 import json
 import ssl
 from functools import lru_cache
-from typing import TypeVar
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -10,9 +9,6 @@ from urllib.response import addinfourl
 from ..exceptions import PackageError, SysCallError
 from ..models.gen import AvailablePackage, LocalPackage, PackageSearch, PackageSearchResult, Repository
 from ..pacman import Pacman
-
-PackageType = TypeVar("PackageType", AvailablePackage, LocalPackage)
-
 
 BASE_URL_PKG_SEARCH = 'https://archlinux.org/packages/search/json/'
 # BASE_URL_PKG_CONTENT = 'https://archlinux.org/packages/search/json/'
@@ -143,7 +139,12 @@ def list_available_packages(
 	return packages
 
 
-def _parse_package_output(
+@lru_cache(maxsize=128)
+def _normalize_key_name(key: str) -> str:
+	return key.strip().lower().replace(' ', '_')
+
+
+def _parse_package_output[PackageType: (AvailablePackage, LocalPackage)](
 	package_meta: list[str],
 	cls: type[PackageType]
 ) -> PackageType:
@@ -152,7 +153,7 @@ def _parse_package_output(
 	for line in package_meta:
 		if ':' in line:
 			key, value = line.split(':', 1)
-			key = key.strip().lower().replace(' ', '_')
+			key = _normalize_key_name(key)
 			package[key] = value.strip()
 
 	return cls.model_validate(package)

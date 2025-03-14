@@ -5,37 +5,34 @@ from typing import TYPE_CHECKING
 from archinstall.lib.disk.disk_menu import DiskLayoutConfigurationMenu
 from archinstall.lib.disk.encryption_menu import DiskEncryptionMenu
 from archinstall.lib.models.device_model import DiskEncryption, DiskLayoutConfiguration, DiskLayoutType, EncryptionType, FilesystemType, PartitionModification
-from archinstall.tui import MenuItem, MenuItemGroup
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
 
 from .args import ArchConfig
 from .configuration import save_config
 from .general import secret
 from .hardware import SysInfo
-from .interactions import (
+from .interactions.general_conf import (
 	add_number_of_parallel_downloads,
 	ask_additional_packages_to_install,
 	ask_for_a_timezone,
-	ask_for_additional_users,
 	ask_for_audio_selection,
-	ask_for_bootloader,
-	ask_for_swap,
-	ask_for_uki,
 	ask_hostname,
 	ask_ntp,
-	ask_to_configure_network,
-	select_additional_repositories,
-	select_kernel,
 )
+from .interactions.manage_users_conf import ask_for_additional_users
+from .interactions.network_menu import ask_to_configure_network
+from .interactions.system_conf import ask_for_bootloader, ask_for_swap, ask_for_uki, select_kernel
 from .locale.locale_menu import LocaleMenu
-from .menu import AbstractMenu
-from .mirrors import MirrorConfiguration, MirrorMenu
-from .models import NetworkConfiguration, NicType
+from .menu.abstract_menu import AbstractMenu
+from .mirrors import MirrorMenu
 from .models.audio_configuration import AudioConfiguration
 from .models.bootloader import Bootloader
 from .models.locale import LocaleConfiguration
+from .models.mirrors import MirrorConfiguration
+from .models.network_configuration import NetworkConfiguration, NicType
+from .models.profile_model import ProfileConfiguration
 from .models.users import User
 from .output import FormattedOutput
-from .profile.profile_menu import ProfileConfiguration
 from .translationhandler import Language, translation_handler
 from .utils.util import get_password
 
@@ -75,7 +72,7 @@ class GlobalMenu(AbstractMenu):
 				key='locale_config'
 			),
 			MenuItem(
-				text=str(_('Mirrors')),
+				text=str(_('Mirrors and repositories')),
 				action=self._mirror_configuration,
 				preview_action=self._prev_mirror_config,
 				key='mirror_config'
@@ -112,6 +109,7 @@ class GlobalMenu(AbstractMenu):
 			MenuItem(
 				text=str(_('Unified kernel images')),
 				value=False,
+				enabled=SysInfo.has_uefi(),
 				action=ask_for_uki,
 				preview_action=self._prev_uki,
 				key='uki',
@@ -175,13 +173,6 @@ class GlobalMenu(AbstractMenu):
 				value=[],
 				preview_action=self._prev_additional_pkgs,
 				key='packages'
-			),
-			MenuItem(
-				text=str(_('Optional repositories')),
-				action=select_additional_repositories,
-				value=[],
-				preview_action=self._prev_additional_repos,
-				key='additional_repositories'
 			),
 			MenuItem(
 				text=str(_('Timezone')),
@@ -321,12 +312,6 @@ class GlobalMenu(AbstractMenu):
 		if item.value:
 			output = '\n'.join(sorted(item.value))
 			return output
-		return None
-
-	def _prev_additional_repos(self, item: MenuItem) -> str | None:
-		if item.value:
-			repos = ', '.join(item.value)
-			return f'{_("Additional repositories")}: {repos}'
 		return None
 
 	def _prev_tz(self, item: MenuItem) -> str | None:
@@ -545,10 +530,27 @@ class GlobalMenu(AbstractMenu):
 		mirror_config: MirrorConfiguration = item.value
 
 		output = ''
-		if mirror_config.regions:
-			output += '{}: {}\n\n'.format(str(_('Mirror regions')), mirror_config.regions)
-		if mirror_config.custom_mirrors:
-			table = FormattedOutput.as_table(mirror_config.custom_mirrors)
-			output += '{}\n{}'.format(str(_('Custom mirrors')), table)
+		if mirror_config.mirror_regions:
+			title = str(_('Selected mirror regions'))
+			divider = '-' * len(title)
+			regions = mirror_config.region_names
+			output += f'{title}\n{divider}\n{regions}\n\n'
+
+		if mirror_config.custom_servers:
+			title = str(_('Custom servers'))
+			divider = '-' * len(title)
+			servers = mirror_config.custom_server_urls
+			output += f'{title}\n{divider}\n{servers}\n\n'
+
+		if mirror_config.optional_repositories:
+			title = str(_('Optional repositories'))
+			divider = '-' * len(title)
+			repos = ', '.join([r.value for r in mirror_config.optional_repositories])
+			output += f'{title}\n{divider}\n{repos}\n\n'
+
+		if mirror_config.custom_repositories:
+			title = str(_('Custom repositories'))
+			table = FormattedOutput.as_table(mirror_config.custom_repositories)
+			output += f'{title}:\n\n{table}'
 
 		return output.strip()
