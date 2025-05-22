@@ -7,7 +7,7 @@ from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass, field
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.request import Request, urlopen
 
 from pydantic.dataclasses import dataclass as p_dataclass
@@ -25,16 +25,9 @@ from archinstall.lib.models.users import Password, User
 from archinstall.lib.output import debug, error, warn
 from archinstall.lib.plugins import load_plugin
 from archinstall.lib.storage import storage
-from archinstall.lib.translationhandler import Language, translation_handler
+from archinstall.lib.translationhandler import Language, tr, translation_handler
 from archinstall.lib.utils.util import get_password
 from archinstall.tui.curses_menu import Tui
-
-if TYPE_CHECKING:
-	from collections.abc import Callable
-
-	from archinstall.lib.translationhandler import DeferredTranslation
-
-	_: Callable[[str], DeferredTranslation]
 
 
 @p_dataclass
@@ -49,6 +42,7 @@ class Arguments:
 	script: str = "guided"
 	mountpoint: Path = Path("/mnt")
 	skip_ntp: bool = False
+	skip_wkd: bool = False
 	debug: bool = False
 	offline: bool = False
 	no_pkg_lookups: bool = False
@@ -314,8 +308,7 @@ class ArchConfigHandler:
 			type=str,
 		)
 		parser.add_argument(
-			"--mount-point",
-			"--mount_point",
+			"--mountpoint",
 			type=Path,
 			nargs="?",
 			default=Path("/mnt"),
@@ -325,6 +318,12 @@ class ArchConfigHandler:
 			"--skip-ntp",
 			action="store_true",
 			help="Disables NTP checks during installation",
+			default=False,
+		)
+		parser.add_argument(
+			"--skip-wkd",
+			action="store_true",
+			help="Disables checking if archlinux keyring wkd sync is complete.",
 			default=False,
 		)
 		parser.add_argument(
@@ -430,7 +429,7 @@ class ArchConfigHandler:
 					return json.loads(creds_data)
 				except ValueError as err:
 					if "Invalid password" in str(err):
-						error(str(_("Incorrect credentials file decryption password")))
+						error(tr("Incorrect credentials file decryption password"))
 						exit(1)
 					else:
 						debug(f"Error decrypting credentials file: {err}")
@@ -440,10 +439,10 @@ class ArchConfigHandler:
 
 				with Tui():
 					while True:
-						header = str(_("Incorrect password")) if incorrect_password else None
+						header = tr("Incorrect password") if incorrect_password else None
 
 						decryption_pwd = get_password(
-							text=str(_("Credentials file decryption password")),
+							text=tr("Credentials file decryption password"),
 							header=header,
 							allow_skip=False,
 							skip_confirmation=True,
