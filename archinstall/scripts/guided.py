@@ -31,7 +31,7 @@ def ask_user_questions() -> None:
 		global_menu = GlobalMenu(arch_config_handler.config)
 
 		if not arch_config_handler.args.advanced:
-			global_menu.set_enabled("parallel_downloads", False)
+			global_menu.set_enabled('parallel_downloads', False)
 
 		global_menu.run()
 
@@ -42,25 +42,23 @@ def perform_installation(mountpoint: Path) -> None:
 	Only requirement is that the block devices are
 	formatted and setup prior to entering this function.
 	"""
-	info("Starting installation...")
+	info('Starting installation...')
 
 	config = arch_config_handler.config
 
 	if not config.disk_config:
-		error("No disk configuration provided")
+		error('No disk configuration provided')
 		return
 
 	disk_config = config.disk_config
 	run_mkinitcpio = not config.uki
 	locale_config = config.locale_config
-	disk_encryption = config.disk_encryption
 	optional_repositories = config.mirror_config.optional_repositories if config.mirror_config else []
 	mountpoint = disk_config.mountpoint if disk_config.mountpoint else mountpoint
 
 	with Installer(
 		mountpoint,
 		disk_config,
-		disk_encryption=disk_encryption,
 		kernels=config.kernels,
 	) as installation:
 		# Mount all the drives to the desired mountpoint
@@ -70,7 +68,7 @@ def perform_installation(mountpoint: Path) -> None:
 		installation.sanity_check()
 
 		if disk_config.config_type != DiskLayoutType.Pre_mount:
-			if disk_encryption and disk_encryption.encryption_type != EncryptionType.NoEncryption:
+			if disk_config.disk_encryption and disk_config.disk_encryption.encryption_type != EncryptionType.NoEncryption:
 				# generate encryption key files for the mounted luks devices
 				installation.generate_key_files()
 
@@ -88,10 +86,10 @@ def perform_installation(mountpoint: Path) -> None:
 			installation.set_mirrors(mirror_config, on_target=True)
 
 		if config.swap:
-			installation.setup_swap("zram")
+			installation.setup_swap('zram')
 
 		if config.bootloader == Bootloader.Grub and SysInfo.has_uefi():
-			installation.add_additional_packages("grub")
+			installation.add_additional_packages('grub')
 
 		installation.add_bootloader(config.bootloader, config.uki)
 
@@ -112,9 +110,9 @@ def perform_installation(mountpoint: Path) -> None:
 		if audio_config:
 			audio_config.install_audio_config(installation)
 		else:
-			info("No audio server will be installed")
+			info('No audio server will be installed')
 
-		if config.packages and config.packages[0] != "":
+		if config.packages and config.packages[0] != '':
 			installation.add_additional_packages(config.packages)
 
 		if profile_config := config.profile_config:
@@ -130,7 +128,7 @@ def perform_installation(mountpoint: Path) -> None:
 			installation.enable_espeakup()
 
 		if root_pw := config.root_enc_password:
-			root_user = User("root", root_pw, False)
+			root_user = User('root', root_pw, False)
 			installation.set_user_password(root_user)
 
 		if (profile_config := config.profile_config) and profile_config.profile:
@@ -141,13 +139,20 @@ def perform_installation(mountpoint: Path) -> None:
 		if servies := config.services:
 			installation.enable_service(servies)
 
+		if disk_config.is_default_btrfs():
+			btrfs_options = disk_config.btrfs_options
+			snapshot_config = btrfs_options.snapshot_config if btrfs_options else None
+			snapshot_type = snapshot_config.snapshot_type if snapshot_config else None
+			if snapshot_type:
+				installation.setup_btrfs_snapshot(snapshot_type, config.bootloader)
+
 		# If the user provided custom commands to be run post-installation, execute them now.
 		if cc := config.custom_commands:
 			run_custom_user_commands(cc, installation)
 
 		installation.genfstab()
 
-		debug(f"Disk states after installing:\n{disk_layouts()}")
+		debug(f'Disk states after installing:\n{disk_layouts()}')
 
 		if not arch_config_handler.args.silent:
 			with Tui():
@@ -157,7 +162,7 @@ def perform_installation(mountpoint: Path) -> None:
 				case PostInstallationAction.EXIT:
 					pass
 				case PostInstallationAction.REBOOT:
-					os.system("reboot")
+					os.system('reboot')
 				case PostInstallationAction.CHROOT:
 					try:
 						installation.drop_to_shell()
@@ -179,15 +184,11 @@ def guided() -> None:
 	if not arch_config_handler.args.silent:
 		with Tui():
 			if not config.confirm_config():
-				debug("Installation aborted")
+				debug('Installation aborted')
 				guided()
 
 	if arch_config_handler.config.disk_config:
-		fs_handler = FilesystemHandler(
-			arch_config_handler.config.disk_config,
-			arch_config_handler.config.disk_encryption,
-		)
-
+		fs_handler = FilesystemHandler(arch_config_handler.config.disk_config)
 		fs_handler.perform_filesystem_operations()
 
 	perform_installation(arch_config_handler.args.mountpoint)
