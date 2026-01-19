@@ -1,7 +1,7 @@
 default_stages: ['pre-commit']
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.10
+    rev: v0.14.13
     hooks:
         # fix unused imports and sort them
       - id: ruff
@@ -43,9 +43,12 @@ repos:
         - pytest
         - cryptography
         - textual
-  - repo: https://github.com/pycqa/pylint
-    rev: v4.0.4
+  - repo: local
     hooks:
-    - id: pylint
-      fail_fast: true
-      require_serial: true
+      - id: pylint
+        name: pylint
+        entry: pylint
+        language: system
+        types: [python]
+        fail_fast: true
+        require_serial: true

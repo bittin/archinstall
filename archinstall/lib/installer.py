@@ -4,6 +4,7 @@ import platform
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import textwrap
 import time
@@ -11,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from subprocess import CalledProcessError
 from types import TracebackType
-from typing import Any
+from typing import Any, Self
 
 from archinstall.lib.disk.device_handler import device_handler
 from archinstall.lib.disk.fido import Fido2
@@ -33,9 +34,9 @@ from archinstall.lib.models.device import (
 from archinstall.lib.models.packages import Repository
 from archinstall.lib.packages import installed_package
 from archinstall.lib.translationhandler import tr
-from archinstall.tui.curses_menu import Tui
 
 from .args import arch_config_handler
+from .boot import Boot
 from .exceptions import DiskError, HardwareIncompatibilityError, RequirementError, ServiceException, SysCallError
 from .general import SysCommand, run
 from .hardware import SysInfo
@@ -50,7 +51,6 @@ from .output import debug, error, info, log, logger, warn
 from .pacman import Pacman
 from .pacman.config import PacmanConfig
 from .plugins import plugins
-from .storage import storage
 
 # Any package that the Installer() is responsible for (optional and the default ones)
 __packages__ = ['base', 'sudo', 'linux-firmware', 'linux', 'linux-lts', 'linux-zen', 'linux-hardened']
@@ -94,8 +94,6 @@ class Installer:
 
 		self.post_base_install: list[Callable] = []  # type: ignore[type-arg]
 
-		storage['installation_session'] = self
-
 		self._modules: list[str] = []
 		self._binaries: list[str] = []
 		self._files: list[str] = []
@@ -123,7 +121,7 @@ class Installer:
 
 		self.pacman = Pacman(self.target, arch_config_handler.args.silent)
 
-	def __enter__(self) -> 'Installer':
+	def __enter__(self) -> Self:
 		return self
 
 	def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: TracebackType | None) -> bool | None:
@@ -134,8 +132,8 @@ class Installer:
 
 			# We avoid printing /mnt/<log path> because that might confuse people if they note it down
 			# and then reboot, and an identical log file will be found in the ISO medium anyway.
-			Tui.print(str(tr('[!] A log file has been created here: {}').format(logger.path)))
-			Tui.print(tr('Please submit this issue (and file) to https://github.com/archlinux/archinstall/issues'))
+			print(tr('[!] A log file has been created here: {}').format(logger.path))
+			print(tr('Please submit this issue (and file) to https://github.com/archlinux/archinstall/issues'))
 
 			# Return None to propagate the exception
 			return None
@@ -208,7 +206,7 @@ class Installer:
 
 		# info('Waiting for pacman-init.service to complete.')
 		# while self._service_state('pacman-init') not in ('dead', 'failed', 'exited'):
-		# 	time.sleep(1)
+		# time.sleep(1)
 
 		if not arch_config_handler.args.skip_wkd:
 			info(tr('Waiting for Arch Linux keyring sync (archlinux-keyring-wkd-sync) to complete.'))
@@ -1066,7 +1064,7 @@ class Installer:
 
 		debug(f'Configuring grub-btrfsd service for {snapshot_type} at {snapshot_path}')
 
-		# Works for either snapper or ts just adpating default paths above
+		# Works for either snapper or ts just adapting default paths above
 		# https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#id-1.14.3
 		systemd_dir = self.target / 'etc/systemd/system/grub-btrfsd.service.d'
 		systemd_dir.mkdir(parents=True, exist_ok=True)
@@ -1102,7 +1100,7 @@ class Installer:
 
 		if root_partition in self._disk_encryption.partitions:
 			# TODO: We need to detect if the encrypted device is a whole disk encryption,
-			#       or simply a partition encryption. Right now we assume it's a partition (and we always have)
+			# or simply a partition encryption. Right now we assume it's a partition (and we always have)
 
 			if self._disk_encryption.hsm_device:
 				debug(f'Root partition is an encrypted device, identifying by UUID: {root_partition.uuid}')
@@ -1218,9 +1216,9 @@ class Installer:
 			f"""\
 			# Created by: archinstall
 			# Created on: {self.init_time}
-			title   Arch Linux ({{kernel}})
-			linux   /vmlinuz-{{kernel}}
-			initrd  /initramfs-{{kernel}}.img
+			title	Arch Linux ({{kernel}})
+			linux	/vmlinuz-{{kernel}}
+			initrd	/initramfs-{{kernel}}.img
 			options {' '.join(self._get_kernel_params(root))}
 			""",
 		)
@@ -1271,7 +1269,7 @@ class Installer:
 
 		try:
 			# Force EFI variables since bootctl detects arch-chroot
-			# as a container environemnt since v257 and skips them silently.
+			# as a container environment since v257 and skips them silently.
 			# https://github.com/systemd/systemd/issues/36174
 			if systemd_version >= '258':
 				self.arch_chroot(f'bootctl --variables=yes {" ".join(bootctl_options)} install')
@@ -1332,14 +1330,6 @@ class Installer:
 
 		self.pacman.strap('grub')
 
-		grub_default = self.target / 'etc/default/grub'
-		config = grub_default.read_text()
-
-		kernel_parameters = ' '.join(self._get_kernel_params(root, False, False))
-		config = re.sub(r'(GRUB_CMDLINE_LINUX=")("\n)', rf'\1{kernel_parameters}\2', config, count=1)
-
-		grub_default.write_text(config)
-
 		info(f'GRUB boot partition: {boot_partition.dev_path}')
 
 		boot_dir = Path('/boot')
@@ -1397,36 +1387,49 @@ class Installer:
 			except SysCallError as err:
 				raise DiskError(f'Failed to install GRUB boot on {boot_partition.dev_path}: {err}')
 
-		# Add custom UKI entries if enabled
-		if uki_enabled and SysInfo.has_uefi() and efi_partition:
-			custom_entries = self.target / 'etc/grub.d/09_custom'
-			entries_content = (
-				'#!/bin/sh\n'
-				'exec tail -n +3 $0\n'
-				'# This file provides UKI (Unified Kernel Image) boot entries.\n'
-				'# Generated by archinstall. Do not modify the exec tail line above.\n'
-				'# Custom entries can be added below.\n\n'
+		if SysInfo.has_uefi() and uki_enabled:
+			grub_d = self.target / 'etc/grub.d'
+			linux_file = grub_d / '10_linux'
+			uki_file = grub_d / '15_uki'
+
+			raw_str_platform = r'\$grub_platform'
+			space_indent_cmd = '  uki'
+			content = textwrap.dedent(
+				f"""\
+				#! /bin/sh
+				set -e
+
+				cat << EOF
+				if [ "{raw_str_platform}" = "efi" ]; then
+				{space_indent_cmd}
+				fi
+				EOF
+				""",
 			)
 
-			uki_entries = []
-			for kernel in self.kernels:
-				entry = textwrap.dedent(
-					f"""
-					menuentry "Arch Linux ({kernel}) UKI" {{
-						uki /EFI/Linux/arch-{kernel}.efi
-					}}
-					"""
-				)
-				uki_entries.append(entry)
+			try:
+				mode = linux_file.stat().st_mode
+				linux_file.chmod(mode & ~(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
+				uki_file.write_text(content)
+				uki_file.chmod(mode)
+			except OSError:
+				error('Failed to enable UKI menu entries')
+		else:
+			grub_default = self.target / 'etc/default/grub'
+			config = grub_default.read_text()
 
-			entries_content += '\n'.join(uki_entries)
-			custom_entries.write_text(entries_content)
-			custom_entries.chmod(0o755)
+			kernel_parameters = ' '.join(
+				self._get_kernel_params(root, id_root=False, partuuid=False),
+			)
+			config = re.sub(
+				r'^(GRUB_CMDLINE_LINUX=")(")$',
+				rf'\1{kernel_parameters}\2',
+				config,
+				count=1,
+				flags=re.MULTILINE,
+			)
 
-			# Disable 10_linux to prevent broken entries on kernel updates
-			linux_script = self.target / 'etc/grub.d/10_linux'
-			if linux_script.exists():
-				linux_script.chmod(0o644)
+			grub_default.write_text(config)
 
 		try:
 			self.arch_chroot(
@@ -1580,7 +1583,7 @@ class Installer:
 					f'cmdline: {kernel_params}',
 				]
 				config_contents += f'\n/Arch Linux ({kernel})\n'
-				config_contents += '\n'.join([f'    {it}' for it in entry]) + '\n'
+				config_contents += '\n'.join(f'    {it}' for it in entry) + '\n'
 			else:
 				entry = [
 					'protocol: linux',
@@ -1589,7 +1592,7 @@ class Installer:
 					f'module_path: {path_root}:/initramfs-{kernel}.img',
 				]
 				config_contents += f'\n/Arch Linux ({kernel})\n'
-				config_contents += '\n'.join([f'    {it}' for it in entry]) + '\n'
+				config_contents += '\n'.join(f'    {it}' for it in entry) + '\n'
 
 		config_path.write_text(config_contents)
 
@@ -1817,7 +1820,7 @@ class Installer:
 		for plugin in plugins.values():
 			if hasattr(plugin, 'on_add_bootloader'):
 				# Allow plugins to override the boot-loader handling.
-				# This allows for bot configuring and installing bootloaders.
+				# This allows for boot configuring and installing bootloaders.
 				if plugin.on_add_bootloader(self):
 					return
 
@@ -1975,7 +1978,7 @@ class Installer:
 		except SysCallError:
 			return False
 
-	def set_vconsole(self, locale_config: 'LocaleConfiguration') -> None:
+	def set_vconsole(self, locale_config: LocaleConfiguration) -> None:
 		# use the already set kb layout
 		kb_vconsole: str = locale_config.kb_layout
 		# this is the default used in ISO other option for hdpi screens TER16x32
@@ -2008,8 +2011,6 @@ class Installer:
 
 			# In accordance with https://github.com/archlinux/archinstall/issues/107#issuecomment-841701968
 			# Setting an empty keymap first, allows the subsequent call to set layout for both console and x11.
-			from .boot import Boot
-
 			with Boot(self) as session:
 				os.system('systemd-run --machine=archinstall --pty localectl set-keymap ""')
 
@@ -2035,8 +2036,6 @@ class Installer:
 			if not verify_x11_keyboard_layout(language):
 				error(f'Invalid x11-keyboard language specified: {language}')
 				return False
-
-			from .boot import Boot
 
 			with Boot(self) as session:
 				session.SysCommand(['localectl', 'set-x11-keymap', '""'])

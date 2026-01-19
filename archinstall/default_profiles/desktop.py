@@ -1,19 +1,20 @@
-from typing import TYPE_CHECKING, override
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self, override
 
 from archinstall.default_profiles.profile import GreeterType, Profile, ProfileType, SelectResult
+from archinstall.lib.menu.helpers import Selection
 from archinstall.lib.output import info
 from archinstall.lib.profile.profiles_handler import profile_handler
-from archinstall.tui.curses_menu import SelectMenu
-from archinstall.tui.menu_item import MenuItem, MenuItemGroup
-from archinstall.tui.result import ResultType
-from archinstall.tui.types import FrameProperties, PreviewStyle
+from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.ui.result import ResultType
 
 if TYPE_CHECKING:
 	from archinstall.lib.installer import Installer
 
 
 class DesktopProfile(Profile):
-	def __init__(self, current_selection: list[Profile] = []) -> None:
+	def __init__(self, current_selection: list[Self] = []) -> None:
 		super().__init__(
 			'Desktop',
 			ProfileType.Desktop,
@@ -60,7 +61,7 @@ class DesktopProfile(Profile):
 			MenuItem(
 				p.name,
 				value=p,
-				preview_action=lambda x: x.value.preview_text(),
+				preview_action=lambda x: x.value.preview_text() if x.value else None,
 			)
 			for p in profile_handler.get_desktop_profiles()
 		]
@@ -68,15 +69,13 @@ class DesktopProfile(Profile):
 		group = MenuItemGroup(items, sort_items=True, sort_case_sensitive=False)
 		group.set_selected_by_value(self.current_selection)
 
-		result = SelectMenu[Profile](
+		result = Selection[Self](
 			group,
 			multi=True,
 			allow_reset=True,
 			allow_skip=True,
-			preview_style=PreviewStyle.RIGHT,
-			preview_size='auto',
-			preview_frame=FrameProperties.max('Info'),
-		).run()
+			preview_location='right',
+		).show()
 
 		match result.type_:
 			case ResultType.Selection:
@@ -89,12 +88,12 @@ class DesktopProfile(Profile):
 				return SelectResult.ResetCurrent
 
 	@override
-	def post_install(self, install_session: 'Installer') -> None:
+	def post_install(self, install_session: Installer) -> None:
 		for profile in self.current_selection:
 			profile.post_install(install_session)
 
 	@override
-	def install(self, install_session: 'Installer') -> None:
+	def install(self, install_session: Installer) -> None:
 		# Install common packages for all desktop environments
 		install_session.add_additional_packages(self.packages)
 

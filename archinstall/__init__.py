@@ -8,18 +8,16 @@ import traceback
 
 from archinstall.lib.args import arch_config_handler
 from archinstall.lib.disk.utils import disk_layouts
+from archinstall.lib.general import running_from_host
 from archinstall.lib.network.wifi_handler import wifi_handler
 from archinstall.lib.networking import ping
-from archinstall.lib.packages.packages import check_package_upgrade
-from archinstall.tui.ui.components import tui as ttui
+from archinstall.lib.packages.packages import check_version_upgrade
 
-from .lib.general import running_from_host
 from .lib.hardware import SysInfo
 from .lib.output import FormattedOutput, debug, error, info, log, warn
 from .lib.pacman import Pacman
 from .lib.plugins import load_plugin, plugins
 from .lib.translationhandler import Language, tr, translation_handler
-from .tui.curses_menu import Tui
 
 
 # @archinstall.plugin decorator hook to programmatically add
@@ -48,7 +46,7 @@ def _check_online() -> None:
 			if not arch_config_handler.args.skip_wifi_check:
 				success = not wifi_handler.setup()
 				if not success:
-					exit(0)
+					sys.exit(0)
 
 
 def _fetch_arch_db() -> None:
@@ -63,22 +61,7 @@ def _fetch_arch_db() -> None:
 		error('Run archinstall --debug and check /var/log/archinstall/install.log for details.')
 
 		debug(f'Failed to sync Arch Linux package database: {e}')
-		exit(1)
-
-
-def check_version_upgrade() -> str | None:
-	info('Checking version...')
-	upgrade = None
-
-	upgrade = check_package_upgrade('archinstall')
-
-	if upgrade is None:
-		debug('No archinstall upgrades found')
-		return None
-
-	text = tr('New version available') + f': {upgrade}'
-	info(text)
-	return text
+		sys.exit(1)
 
 
 def main() -> int:
@@ -97,18 +80,16 @@ def main() -> int:
 
 	_log_sys_info()
 
-	ttui.global_header = 'Archinstall'
-
 	if not arch_config_handler.args.offline:
 		_check_online()
 		_fetch_arch_db()
 
 		if not arch_config_handler.args.skip_version_check:
-			new_version = check_version_upgrade()
+			upgrade = check_version_upgrade()
 
-			if new_version:
-				ttui.global_header = f'{ttui.global_header} {new_version}'
-				info(new_version)
+			if upgrade:
+				text = tr('New version available') + f': {upgrade}'
+				info(text)
 				time.sleep(3)
 
 	if running_from_host():
@@ -135,9 +116,6 @@ def run_as_a_module() -> None:
 	except Exception as e:
 		exc = e
 	finally:
-		# restore the terminal to the original state
-		Tui.shutdown()
-
 		if exc:
 			err = ''.join(traceback.format_exception(exc))
 			error(err)
@@ -151,7 +129,7 @@ def run_as_a_module() -> None:
 			warn(text)
 			rc = 1
 
-		exit(rc)
+		sys.exit(rc)
 
 
 __all__ = [
@@ -159,7 +137,6 @@ __all__ = [
 	'Language',
 	'Pacman',
 	'SysInfo',
-	'Tui',
 	'arch_config_handler',
 	'debug',
 	'disk_layouts',

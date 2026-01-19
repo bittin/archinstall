@@ -1,13 +1,12 @@
-from __future__ import annotations
-
+import sys
 from typing import override
 
 from archinstall.lib.disk.disk_menu import DiskLayoutConfigurationMenu
 from archinstall.lib.models.application import ApplicationConfiguration, ZramConfiguration
 from archinstall.lib.models.authentication import AuthenticationConfiguration
-from archinstall.lib.models.device import DiskLayoutConfiguration, DiskLayoutType, EncryptionType, FilesystemType, PartitionModification
+from archinstall.lib.models.device import DiskLayoutConfiguration, DiskLayoutType, FilesystemType, PartitionModification
 from archinstall.lib.packages import list_available_packages
-from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
 
 from .applications.application_menu import ApplicationMenu
 from .args import ArchConfig
@@ -39,7 +38,7 @@ from .translationhandler import Language, tr, translation_handler
 
 
 class GlobalMenu(AbstractMenu[None]):
-	def __init__(self, arch_config: ArchConfig) -> None:
+	def __init__(self, arch_config: ArchConfig, title: str | None = None) -> None:
 		self._arch_config = arch_config
 		menu_options = self._get_menu_options()
 
@@ -49,7 +48,7 @@ class GlobalMenu(AbstractMenu[None]):
 			checkmarks=True,
 		)
 
-		super().__init__(self._item_group, config=arch_config)
+		super().__init__(self._item_group, config=arch_config, title=title)
 
 	def _get_menu_options(self) -> list[MenuItem]:
 		menu_options = [
@@ -61,6 +60,7 @@ class GlobalMenu(AbstractMenu[None]):
 			),
 			MenuItem(
 				text=tr('Locales'),
+				value=LocaleConfiguration.default(),
 				action=self._locale_selection,
 				preview_action=self._prev_locale,
 				key='locale_config',
@@ -136,7 +136,7 @@ class GlobalMenu(AbstractMenu[None]):
 			MenuItem(
 				text=tr('Parallel Downloads'),
 				action=add_number_of_parallel_downloads,
-				value=0,
+				value=1,
 				preview_action=self._prev_parallel_dw,
 				key='parallel_downloads',
 			),
@@ -163,6 +163,7 @@ class GlobalMenu(AbstractMenu[None]):
 			),
 			MenuItem(
 				text='',
+				read_only=True,
 			),
 			MenuItem(
 				text=tr('Save configuration'),
@@ -176,7 +177,7 @@ class GlobalMenu(AbstractMenu[None]):
 			),
 			MenuItem(
 				text=tr('Abort'),
-				action=lambda x: exit(1),
+				action=lambda x: sys.exit(1),
 				key=f'{CONFIG_KEY}_abort',
 			),
 		]
@@ -186,8 +187,8 @@ class GlobalMenu(AbstractMenu[None]):
 	def _safe_config(self) -> None:
 		# data: dict[str, Any] = {}
 		# for item in self._item_group.items:
-		# 	if item.key is not None:
-		# 		data[item.key] = item.value
+		# if item.key is not None:
+		# data[item.key] = item.value
 
 		self.sync_all_to_config()
 		save_config(self._arch_config)
@@ -341,6 +342,11 @@ class GlobalMenu(AbstractMenu[None]):
 				output += f'{tr("Power management")}: {power_management_config.power_management.value}'
 				output += '\n'
 
+			if app_config.firewall_config:
+				firewall_config = app_config.firewall_config
+				output += f'{tr("Firewall")}: {firewall_config.firewall.value}'
+				output += '\n'
+
 			return output
 
 		return None
@@ -370,7 +376,7 @@ class GlobalMenu(AbstractMenu[None]):
 				output += '{}: {}'.format(tr('LVM configuration type'), disk_layout_conf.lvm_config.config_type.display_msg()) + '\n'
 
 			if disk_layout_conf.disk_encryption:
-				output += tr('Disk encryption') + ': ' + EncryptionType.type_to_text(disk_layout_conf.disk_encryption.encryption_type) + '\n'
+				output += tr('Disk encryption') + ': ' + disk_layout_conf.disk_encryption.encryption_type.type_to_text() + '\n'
 
 			if disk_layout_conf.btrfs_options:
 				btrfs_options = disk_layout_conf.btrfs_options
@@ -543,10 +549,10 @@ class GlobalMenu(AbstractMenu[None]):
 
 		return packages
 
-	def _mirror_configuration(self, preset: MirrorConfiguration | None = None) -> MirrorConfiguration:
+	def _mirror_configuration(self, preset: MirrorConfiguration | None = None) -> MirrorConfiguration | None:
 		mirror_configuration = MirrorMenu(preset=preset).run()
 
-		if mirror_configuration.optional_repositories:
+		if mirror_configuration and mirror_configuration.optional_repositories:
 			# reset the package list cache in case the repository selection has changed
 			list_available_packages.cache_clear()
 
@@ -579,7 +585,7 @@ class GlobalMenu(AbstractMenu[None]):
 		if mirror_config.optional_repositories:
 			title = tr('Optional repositories')
 			divider = '-' * len(title)
-			repos = ', '.join([r.value for r in mirror_config.optional_repositories])
+			repos = ', '.join(r.value for r in mirror_config.optional_repositories)
 			output += f'{title}\n{divider}\n{repos}\n\n'
 
 		if mirror_config.custom_repositories:

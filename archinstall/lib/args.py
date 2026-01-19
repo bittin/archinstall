@@ -1,13 +1,14 @@
 import argparse
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass, field
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from urllib.request import Request, urlopen
 
 from pydantic.dataclasses import dataclass as p_dataclass
@@ -27,7 +28,6 @@ from archinstall.lib.output import debug, error, logger, warn
 from archinstall.lib.plugins import load_plugin
 from archinstall.lib.translationhandler import Language, tr, translation_handler
 from archinstall.lib.utils.util import get_password
-from archinstall.tui.curses_menu import Tui
 
 
 @p_dataclass
@@ -131,8 +131,8 @@ class ArchConfig:
 		return config
 
 	@classmethod
-	def from_config(cls, args_config: dict[str, Any], args: Arguments) -> 'ArchConfig':
-		arch_config = ArchConfig()
+	def from_config(cls, args_config: dict[str, Any], args: Arguments) -> Self:
+		arch_config = cls()
 
 		arch_config.locale_config = LocaleConfiguration.parse_arg(args_config)
 
@@ -266,7 +266,7 @@ class ArchConfigHandler:
 			self._config.version = self._get_version()
 		except ValueError as err:
 			warn(str(err))
-			exit(1)
+			sys.exit(1)
 
 	@property
 	def config(self) -> ArchConfig:
@@ -492,37 +492,36 @@ class ArchConfigHandler:
 				except ValueError as err:
 					if 'Invalid password' in str(err):
 						error(tr('Incorrect credentials file decryption password'))
-						exit(1)
+						sys.exit(1)
 					else:
 						debug(f'Error decrypting credentials file: {err}')
 						raise err from err
 			else:
 				incorrect_password = False
+				header = tr('Enter credentials file decryption password')
 
-				with Tui():
-					while True:
-						header = tr('Incorrect password') if incorrect_password else None
+				while True:
+					prompt = f'{header}\n\n' + tr('Incorrect password') if incorrect_password else ''
 
-						decryption_pwd = get_password(
-							text=tr('Credentials file decryption password'),
-							header=header,
-							allow_skip=False,
-							skip_confirmation=True,
-						)
+					decryption_pwd = get_password(
+						header=prompt,
+						allow_skip=False,
+						skip_confirmation=True,
+					)
 
-						if not decryption_pwd:
-							return None
+					if not decryption_pwd:
+						return None
 
-						try:
-							creds_data = decrypt(creds_data, decryption_pwd.plaintext)
-							break
-						except ValueError as err:
-							if 'Invalid password' in str(err):
-								debug('Incorrect credentials file decryption password')
-								incorrect_password = True
-							else:
-								debug(f'Error decrypting credentials file: {err}')
-								raise err from err
+					try:
+						creds_data = decrypt(creds_data, decryption_pwd.plaintext)
+						break
+					except ValueError as err:
+						if 'Invalid password' in str(err):
+							debug('Incorrect credentials file decryption password')
+							incorrect_password = True
+						else:
+							debug(f'Error decrypting credentials file: {err}')
+							raise err from err
 
 		return json.loads(creds_data)
 
@@ -537,12 +536,12 @@ class ArchConfigHandler:
 		else:
 			error('Not a valid url')
 
-		exit(1)
+		sys.exit(1)
 
 	def _read_file(self, path: Path) -> str:
 		if not path.exists():
 			error(f'Could not find file {path}')
-			exit(1)
+			sys.exit(1)
 
 		return path.read_text()
 

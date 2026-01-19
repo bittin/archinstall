@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import os
 import re
@@ -17,7 +15,7 @@ from pathlib import Path
 from select import EPOLLHUP, EPOLLIN, epoll
 from shutil import which
 from types import TracebackType
-from typing import Any, override
+from typing import Any, Self, override
 
 from .exceptions import RequirementError, SysCallError
 from .output import debug, error, logger
@@ -179,7 +177,7 @@ class SysCommandWorker:
 		except UnicodeDecodeError:
 			return str(self._trace_log)
 
-	def __enter__(self) -> 'SysCommandWorker':
+	def __enter__(self) -> Self:
 		return self
 
 	def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: TracebackType | None) -> None:
@@ -289,9 +287,9 @@ class SysCommandWorker:
 			os.chdir(str(self.working_directory))
 
 		# Note: If for any reason, we get a Python exception between here
-		#   and until os.close(), the traceback will get locked inside
-		#   stdout of the child_fd object. `os.read(self.child_fd, 8192)` is the
-		#   only way to get the traceback without losing it.
+		# and until os.close(), the traceback will get locked inside
+		# stdout of the child_fd object. `os.read(self.child_fd, 8192)` is the
+		# only way to get the traceback without losing it.
 
 		self.pid, self.child_fd = pty.fork()
 
