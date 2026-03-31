@@ -2,17 +2,18 @@ import json
 import readline
 import stat
 from pathlib import Path
+from typing import Any
 
+from pydantic import TypeAdapter
+
+from archinstall.lib.args import ArchConfig
+from archinstall.lib.crypt import encrypt
 from archinstall.lib.menu.helpers import Confirmation, Selection
+from archinstall.lib.menu.util import get_password, prompt_dir
+from archinstall.lib.output import debug, logger, warn
 from archinstall.lib.translationhandler import tr
 from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
 from archinstall.tui.ui.result import ResultType
-
-from .args import ArchConfig
-from .crypt import encrypt
-from .general import JSON, UNSAFE_JSON
-from .output import debug, logger, warn
-from .utils.util import get_password, prompt_dir
 
 
 class ConfigurationOutput:
@@ -40,25 +41,31 @@ class ConfigurationOutput:
 		return self._user_creds_file
 
 	def user_config_to_json(self) -> str:
-		out = self._config.safe_json()
-		return json.dumps(out, indent=4, sort_keys=True, cls=JSON)
+		config = self._config.safe_config()
+
+		adapter = TypeAdapter(dict[str, Any])
+		python_dict = adapter.dump_python(config)
+		return json.dumps(python_dict, indent=4, sort_keys=True)
 
 	def user_credentials_to_json(self) -> str:
-		out = self._config.unsafe_json()
-		return json.dumps(out, indent=4, sort_keys=True, cls=UNSAFE_JSON)
+		config = self._config.unsafe_config()
+
+		adapter = TypeAdapter(dict[str, Any])
+		python_dict = adapter.dump_python(config)
+		return json.dumps(python_dict, indent=4, sort_keys=True)
 
 	def write_debug(self) -> None:
 		debug(' -- Chosen configuration --')
 		debug(self.user_config_to_json())
 
-	def confirm_config(self) -> bool:
+	async def confirm_config(self) -> bool:
 		header = f'{tr("The specified configuration will be applied")}. '
 		header += tr('Would you like to continue?') + '\n'
 
 		group = MenuItemGroup.yes_no()
 		group.set_preview_for_all(lambda x: self.user_config_to_json())
 
-		result = Confirmation(
+		result = await Confirmation(
 			group=group,
 			header=header,
 			allow_skip=False,
@@ -116,7 +123,7 @@ class ConfigurationOutput:
 				self.save_user_creds(save_path, password=password)
 
 
-def save_config(config: ArchConfig) -> None:
+async def save_config(config: ArchConfig) -> None:
 	def preview(item: MenuItem) -> str | None:
 		match item.value:
 			case 'user_config':
@@ -154,7 +161,7 @@ def save_config(config: ArchConfig) -> None:
 	]
 
 	group = MenuItemGroup(items)
-	result = Selection[str](
+	result = await Selection[str](
 		group,
 		allow_skip=True,
 		preview_location='right',
@@ -171,7 +178,7 @@ def save_config(config: ArchConfig) -> None:
 	readline.set_completer_delims('\t\n=')
 	readline.parse_and_bind('tab: complete')
 
-	dest_path = prompt_dir(
+	dest_path = await prompt_dir(
 		tr('Enter a directory for the configuration(s) to be saved') + '\n',
 		allow_skip=True,
 	)
@@ -181,7 +188,7 @@ def save_config(config: ArchConfig) -> None:
 
 	header = tr('Do you want to save the configuration file(s) to {}?').format(dest_path)
 
-	save_result = Confirmation(
+	save_result = await Confirmation(
 		header=header,
 		allow_skip=False,
 		preset=True,
@@ -198,7 +205,7 @@ def save_config(config: ArchConfig) -> None:
 
 	header = tr('Do you want to encrypt the user_credentials.json file?')
 
-	enc_result = Confirmation(
+	enc_result = await Confirmation(
 		header=header,
 		allow_skip=False,
 		preset=False,
@@ -207,7 +214,7 @@ def save_config(config: ArchConfig) -> None:
 	enc_password: str | None = None
 	if enc_result.type_ == ResultType.Selection:
 		if enc_result.get_value():
-			password = get_password(
+			password = await get_password(
 				header=tr('Credentials file encryption password'),
 				allow_skip=True,
 			)

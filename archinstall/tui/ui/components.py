@@ -1,6 +1,9 @@
 import sys
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar, Literal, TypeVar, override
+from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Any, ClassVar, Literal, TypeVar, cast, override
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -44,7 +47,7 @@ class BaseScreen(Screen[Result[ValueT]]):
 			_ = self.dismiss(Result(ResultType.Reset))
 
 
-class LoadingScreen(BaseScreen[None]):
+class LoadingScreen(BaseScreen[ValueT]):
 	CSS = """
 	LoadingScreen {
 		align: center middle;
@@ -78,7 +81,7 @@ class LoadingScreen(BaseScreen[None]):
 		self._header = header
 		self._data_callback = data_callback
 
-	async def run(self) -> Result[None]:
+	async def run(self) -> Result[ValueT]:
 		assert TApp.app
 		return await TApp.app.show(self)
 
@@ -110,7 +113,9 @@ class LoadingScreen(BaseScreen[None]):
 	def _exec_callback(self) -> None:
 		assert self._data_callback
 		result = self._data_callback()
-		_ = self.dismiss(Result(ResultType.Selection, _data=result))
+		# cannot call self.dismiss directly from
+		# background thread (thread=true) as there's no event loop
+		self.app.call_from_thread(self.dismiss, Result(ResultType.Selection, _data=result))
 
 	def action_pop_screen(self) -> None:
 		_ = self.dismiss()
@@ -284,6 +289,10 @@ class OptionListScreen(BaseScreen[ValueT]):
 
 		if focus_item := self._group.focus_item:
 			self._set_preview(focus_item.get_id())
+
+	def on_input_submitted(self, event: Input.Submitted) -> None:
+		if self.query_one(Input).has_focus:
+			self._handle_search_action()
 
 	def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
 		selected_option = event.option
@@ -484,6 +493,10 @@ class SelectListScreen(BaseScreen[ValueT]):
 			yield Input(placeholder='/filter', id='filter-input')
 
 		yield Footer()
+
+	def on_input_submitted(self, event: Input.Submitted) -> None:
+		if self.query_one(Input).has_focus:
+			self._handle_search_action()
 
 	def on_mount(self) -> None:
 		self._update_options(self._options)
@@ -706,6 +719,18 @@ class NotifyScreen(ConfirmationScreen[ValueT]):
 		super().__init__(group, header)
 
 
+class InputInfoType(Enum):
+	MsgInfo = auto()
+	MsgWarning = auto()
+	MsgError = auto()
+
+
+@dataclass
+class InputInfo:
+	message: str
+	info_type: InputInfoType
+
+
 class InputScreen(BaseScreen[str]):
 	CSS = """
 	InputScreen {
@@ -727,6 +752,22 @@ class InputScreen(BaseScreen[str]):
 		color: red;
 		text-align: center;
 	}
+
+	#input-info {
+		text-align: center;
+	}
+
+	.input-hint-msg-error {
+		color: red;
+	}
+
+	.input-hint-msg-warning {
+		color: yellow;
+	}
+
+	.input-hint-msg-info {
+		color: green;
+	}
 	"""
 
 	def __init__(
@@ -738,6 +779,7 @@ class InputScreen(BaseScreen[str]):
 		allow_reset: bool = False,
 		allow_skip: bool = False,
 		validator: Validator | None = None,
+		info_callback: Callable[[str], InputInfo | None] | None = None,
 	):
 		super().__init__(allow_skip, allow_reset)
 		self._header = header or ''
@@ -747,6 +789,7 @@ class InputScreen(BaseScreen[str]):
 		self._allow_reset = allow_reset
 		self._allow_skip = allow_skip
 		self._validator = validator
+		self._info_callback = info_callback
 
 	async def run(self) -> Result[str]:
 		assert TApp.app
@@ -767,6 +810,7 @@ class InputScreen(BaseScreen[str]):
 					validate_on=['submitted'],
 				)
 				yield Label('', classes='input-failure', id='input-failure')
+				yield Label('', id='input-info')
 
 		yield Footer()
 
@@ -782,6 +826,24 @@ class InputScreen(BaseScreen[str]):
 			self.query_one('#input-failure', Label).update(failure_out)
 		else:
 			_ = self.dismiss(Result(ResultType.Selection, _data=event.value))
+
+	def on_input_changed(self, event: Input.Changed) -> None:
+		info_label = self.query_one('#input-info', Label)
+		if self._info_callback:
+			result = self._info_callback(event.value)
+			if result:
+				css_class = ''
+				if result.info_type == InputInfoType.MsgError:
+					css_class = 'input-hint-msg-error'
+				elif result.info_type == InputInfoType.MsgWarning:
+					css_class = 'input-hint-msg-warning'
+				elif result.info_type == InputInfoType.MsgInfo:
+					css_class = 'input-hint-msg-info'
+				info_label.update(result.message)
+				info_label.set_classes(css_class)
+			else:
+				info_label.update('')
+				info_label.set_classes('')
 
 
 class _DataTable(DataTable[ValueT]):
@@ -1051,6 +1113,12 @@ class TableSelectionScreen(BaseScreen[ValueT]):
 			)
 
 
+class InstanceRunnable[ValueT](ABC):
+	@abstractmethod
+	async def run(self) -> ValueT | None:
+		pass
+
+
 class _AppInstance(App[ValueT]):
 	ENABLE_COMMAND_PALETTE = False
 
@@ -1148,7 +1216,7 @@ class _AppInstance(App[ValueT]):
 	}
 	"""
 
-	def __init__(self, main: Any) -> None:
+	def __init__(self, main: InstanceRunnable[ValueT] | Callable[[], Awaitable[ValueT]]) -> None:
 		super().__init__(ansi_color=True)
 		self._main = main
 
@@ -1166,13 +1234,18 @@ class _AppInstance(App[ValueT]):
 	@work
 	async def _run_worker(self) -> None:
 		try:
-			await self._main._run()
+			if isinstance(self._main, InstanceRunnable):
+				result: ValueT | None = await self._main.run()
+			else:
+				result = await self._main()
+
+			tui.exit(result)
 		except WorkerCancelled:
 			debug('Worker was cancelled')
 		except Exception as err:
 			debug(f'Error while running main app: {err}')
 			# this will terminate the textual app and return the exception
-			self.exit(err)  # type: ignore[arg-type]
+			self.exit(cast(ValueT, err))
 
 	@work
 	async def _show_async(self, screen: Screen[Result[ValueT]]) -> Result[ValueT]:
@@ -1185,13 +1258,9 @@ class _AppInstance(App[ValueT]):
 class TApp:
 	app: _AppInstance[Any] | None = None
 
-	def __init__(self) -> None:
-		self._main = None
-		self._global_header: str | None = None
-
-	def run(self, main: Any) -> Result[ValueT]:
+	def run(self, main: InstanceRunnable[ValueT] | Callable[[], Awaitable[ValueT]]) -> ValueT:
 		TApp.app = _AppInstance(main)
-		result: Result[ValueT] | Exception | None = TApp.app.run()
+		result: ValueT | Exception | None = TApp.app.run()
 
 		if isinstance(result, Exception):
 			raise result
@@ -1202,10 +1271,9 @@ class TApp:
 
 		return result
 
-	def exit(self, result: Result[ValueT]) -> None:
+	def exit(self, result: Any) -> None:
 		assert TApp.app
 		TApp.app.exit(result)
-		return
 
 
 tui = TApp()

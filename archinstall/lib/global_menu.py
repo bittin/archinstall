@@ -1,45 +1,48 @@
-import sys
 from typing import override
 
+from archinstall.default_profiles.profile import GreeterType
+from archinstall.lib.applications.application_menu import ApplicationMenu
+from archinstall.lib.args import ArchConfig
+from archinstall.lib.authentication.authentication_menu import AuthenticationMenu
+from archinstall.lib.bootloader.bootloader_menu import BootloaderMenu
+from archinstall.lib.configuration import save_config
 from archinstall.lib.disk.disk_menu import DiskLayoutConfigurationMenu
+from archinstall.lib.general.general_menu import add_number_of_parallel_downloads, select_hostname, select_ntp, select_timezone
+from archinstall.lib.general.system_menu import select_kernel, select_swap
+from archinstall.lib.hardware import SysInfo
+from archinstall.lib.locale.locale_menu import LocaleMenu
+from archinstall.lib.menu.abstract_menu import AbstractMenu, SpecialMenuKey
+from archinstall.lib.mirror.mirror_handler import MirrorListHandler
+from archinstall.lib.mirror.mirror_menu import MirrorMenu
 from archinstall.lib.models.application import ApplicationConfiguration, ZramConfiguration
 from archinstall.lib.models.authentication import AuthenticationConfiguration
+from archinstall.lib.models.bootloader import Bootloader, BootloaderConfiguration
 from archinstall.lib.models.device import DiskLayoutConfiguration, DiskLayoutType, FilesystemType, PartitionModification
-from archinstall.lib.packages import list_available_packages
+from archinstall.lib.models.locale import LocaleConfiguration
+from archinstall.lib.models.mirrors import MirrorConfiguration
+from archinstall.lib.models.network import NetworkConfiguration, NicType
+from archinstall.lib.models.packages import Repository
+from archinstall.lib.models.profile import ProfileConfiguration
+from archinstall.lib.network.network_menu import select_network
+from archinstall.lib.output import FormattedOutput
+from archinstall.lib.packages.packages import list_available_packages, select_additional_packages
+from archinstall.lib.pacman.config import PacmanConfig
+from archinstall.lib.translationhandler import Language, tr, translation_handler
 from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
-
-from .applications.application_menu import ApplicationMenu
-from .args import ArchConfig
-from .authentication.authentication_menu import AuthenticationMenu
-from .bootloader.bootloader_menu import BootloaderMenu
-from .configuration import save_config
-from .hardware import SysInfo
-from .interactions.general_conf import (
-	add_number_of_parallel_downloads,
-	ask_additional_packages_to_install,
-	ask_for_a_timezone,
-	ask_hostname,
-	ask_ntp,
-)
-from .interactions.network_menu import ask_to_configure_network
-from .interactions.system_conf import ask_for_swap, select_kernel
-from .locale.locale_menu import LocaleMenu
-from .menu.abstract_menu import CONFIG_KEY, AbstractMenu
-from .mirrors import MirrorMenu
-from .models.bootloader import Bootloader, BootloaderConfiguration
-from .models.locale import LocaleConfiguration
-from .models.mirrors import MirrorConfiguration
-from .models.network import NetworkConfiguration, NicType
-from .models.packages import Repository
-from .models.profile import ProfileConfiguration
-from .output import FormattedOutput
-from .pacman.config import PacmanConfig
-from .translationhandler import Language, tr, translation_handler
 
 
 class GlobalMenu(AbstractMenu[None]):
-	def __init__(self, arch_config: ArchConfig, title: str | None = None) -> None:
+	def __init__(
+		self,
+		arch_config: ArchConfig,
+		mirror_list_handler: MirrorListHandler | None = None,
+		skip_boot: bool = False,
+		title: str | None = None,
+	) -> None:
 		self._arch_config = arch_config
+		self._mirror_list_handler = mirror_list_handler
+		self._skip_boot = skip_boot
+		self._uefi = SysInfo.has_uefi()
 		menu_options = self._get_menu_options()
 
 		self._item_group = MenuItemGroup(
@@ -81,13 +84,13 @@ class GlobalMenu(AbstractMenu[None]):
 			MenuItem(
 				text=tr('Swap'),
 				value=ZramConfiguration(enabled=True),
-				action=ask_for_swap,
+				action=select_swap,
 				preview_action=self._prev_swap,
 				key='swap',
 			),
 			MenuItem(
 				text=tr('Bootloader'),
-				value=BootloaderConfiguration.get_default(),
+				value=BootloaderConfiguration.get_default(self._uefi, self._skip_boot),
 				action=self._select_bootloader_config,
 				preview_action=self._prev_bootloader_config,
 				key='bootloader_config',
@@ -103,7 +106,7 @@ class GlobalMenu(AbstractMenu[None]):
 			MenuItem(
 				text=tr('Hostname'),
 				value='archlinux',
-				action=ask_hostname,
+				action=select_hostname,
 				preview_action=self._prev_hostname,
 				key='hostname',
 			),
@@ -128,7 +131,7 @@ class GlobalMenu(AbstractMenu[None]):
 			),
 			MenuItem(
 				text=tr('Network configuration'),
-				action=ask_to_configure_network,
+				action=select_network,
 				value={},
 				preview_action=self._prev_network_config,
 				key='network_config',
@@ -149,14 +152,14 @@ class GlobalMenu(AbstractMenu[None]):
 			),
 			MenuItem(
 				text=tr('Timezone'),
-				action=ask_for_a_timezone,
+				action=select_timezone,
 				value='UTC',
 				preview_action=self._prev_tz,
 				key='timezone',
 			),
 			MenuItem(
 				text=tr('Automatic time sync (NTP)'),
-				action=ask_ntp,
+				action=select_ntp,
 				value=True,
 				preview_action=self._prev_ntp,
 				key='ntp',
@@ -168,30 +171,29 @@ class GlobalMenu(AbstractMenu[None]):
 			MenuItem(
 				text=tr('Save configuration'),
 				action=lambda x: self._safe_config(),
-				key=f'{CONFIG_KEY}_save',
+				key=SpecialMenuKey.SAVE.value,
 			),
 			MenuItem(
 				text=tr('Install'),
 				preview_action=self._prev_install_invalid_config,
-				key=f'{CONFIG_KEY}_install',
+				key=SpecialMenuKey.INSTALL.value,
 			),
 			MenuItem(
 				text=tr('Abort'),
-				action=lambda x: sys.exit(1),
-				key=f'{CONFIG_KEY}_abort',
+				key=SpecialMenuKey.ABORT.value,
 			),
 		]
 
 		return menu_options
 
-	def _safe_config(self) -> None:
+	async def _safe_config(self) -> None:
 		# data: dict[str, Any] = {}
 		# for item in self._item_group.items:
 		# if item.key is not None:
 		# data[item.key] = item.value
 
 		self.sync_all_to_config()
-		save_config(self._arch_config)
+		await save_config(self._arch_config)
 
 	def _missing_configs(self) -> list[str]:
 		item: MenuItem = self._item_group.find_by_key('auth_config')
@@ -201,17 +203,24 @@ class GlobalMenu(AbstractMenu[None]):
 			item = self._item_group.find_by_key(s)
 			return item.has_value()
 
-		def has_superuser() -> bool:
-			if auth_config and auth_config.users:
-				return any([u.sudo for u in auth_config.users])
-			return False
-
 		missing = set()
 
-		if (auth_config is None or auth_config.root_enc_password is None) and not has_superuser():
+		if (auth_config is None or auth_config.root_enc_password is None) and not (auth_config and auth_config.has_superuser()):
 			missing.add(
 				tr('Either root-password or at least 1 user with sudo privileges must be specified'),
 			)
+
+		# These greeters only show users with UID >= 1000 and have no manual login by default
+		if not (auth_config and auth_config.has_regular_user()):
+			profile_item: MenuItem = self._item_group.find_by_key('profile_config')
+			profile_config: ProfileConfiguration | None = profile_item.value
+
+			if profile_config and profile_config.profile and profile_config.profile.is_desktop_profile():
+				problematic_greeters = {GreeterType.Sddm}
+				if any(p.default_greeter_type in problematic_greeters for p in profile_config.profile.current_selection):
+					missing.add(
+						tr('The selected desktop profile requires a regular user to log in via the greeter'),
+					)
 
 		for item in self._item_group.items:
 			if item.mandatory:
@@ -222,7 +231,7 @@ class GlobalMenu(AbstractMenu[None]):
 		return list(missing)
 
 	@override
-	def _is_config_valid(self) -> bool:
+	def is_config_valid(self) -> bool:
 		"""
 		Checks the validity of the current configuration.
 		"""
@@ -230,10 +239,10 @@ class GlobalMenu(AbstractMenu[None]):
 			return False
 		return self._validate_bootloader() is None
 
-	def _select_archinstall_language(self, preset: Language) -> Language:
-		from .interactions.general_conf import select_archinstall_language
+	async def _select_archinstall_language(self, preset: Language) -> Language:
+		from archinstall.lib.general.general_menu import select_archinstall_language
 
-		language = select_archinstall_language(translation_handler.translated_languages, preset)
+		language = await select_archinstall_language(translation_handler.translated_languages, preset)
 		translation_handler.activate(language)
 
 		self._update_lang_text()
@@ -247,12 +256,12 @@ class GlobalMenu(AbstractMenu[None]):
 		lang: Language = item.value
 		return f'{tr("Language")}: {lang.display_name}'
 
-	def _select_applications(self, preset: ApplicationConfiguration | None) -> ApplicationConfiguration | None:
-		app_config = ApplicationMenu(preset).run()
+	async def _select_applications(self, preset: ApplicationConfiguration | None) -> ApplicationConfiguration | None:
+		app_config = await ApplicationMenu(preset).show()
 		return app_config
 
-	def _select_authentication(self, preset: AuthenticationConfiguration | None) -> AuthenticationConfiguration | None:
-		auth_config = AuthenticationMenu(preset).run()
+	async def _select_authentication(self, preset: AuthenticationConfiguration | None) -> AuthenticationConfiguration | None:
+		auth_config = await AuthenticationMenu(preset).show()
 		return auth_config
 
 	def _update_lang_text(self) -> None:
@@ -266,8 +275,8 @@ class GlobalMenu(AbstractMenu[None]):
 			if o.key is not None:
 				self._item_group.find_by_key(o.key).text = o.text
 
-	def _locale_selection(self, preset: LocaleConfiguration) -> LocaleConfiguration:
-		locale_config = LocaleMenu(preset).run()
+	async def _locale_selection(self, preset: LocaleConfiguration) -> LocaleConfiguration | None:
+		locale_config = await LocaleMenu(preset).show()
 		return locale_config
 
 	def _prev_locale(self, item: MenuItem) -> str | None:
@@ -415,7 +424,7 @@ class GlobalMenu(AbstractMenu[None]):
 	def _prev_bootloader_config(self, item: MenuItem) -> str | None:
 		bootloader_config: BootloaderConfiguration | None = item.value
 		if bootloader_config:
-			return bootloader_config.preview()
+			return bootloader_config.preview(self._uefi)
 		return None
 
 	def _validate_bootloader(self) -> str | None:
@@ -425,9 +434,6 @@ class GlobalMenu(AbstractMenu[None]):
 
 		Returns [`None`] if the bootloader is valid, otherwise returns a
 		string with the error message.
-
-		XXX: The caller is responsible for wrapping the string with the translation
-			shim if necessary.
 		"""
 		bootloader_config: BootloaderConfiguration | None = None
 		root_partition: PartitionModification | None = None
@@ -448,7 +454,7 @@ class GlobalMenu(AbstractMenu[None]):
 			for layout in disk_config.device_modifications:
 				if boot_partition := layout.get_boot_partition():
 					break
-			if SysInfo.has_uefi():
+			if self._uefi:
 				for layout in disk_config.device_modifications:
 					if efi_partition := layout.get_efi_partition():
 						break
@@ -461,7 +467,7 @@ class GlobalMenu(AbstractMenu[None]):
 		if boot_partition is None:
 			return 'Boot partition not found'
 
-		if SysInfo.has_uefi():
+		if self._uefi:
 			if efi_partition is None:
 				return 'EFI system partition (ESP) not found'
 
@@ -473,7 +479,7 @@ class GlobalMenu(AbstractMenu[None]):
 				return 'Limine does not support booting with a non-FAT boot partition'
 
 		elif bootloader == Bootloader.Refind:
-			if not SysInfo.has_uefi():
+			if not self._uefi:
 				return 'rEFInd can only be used on UEFI systems'
 
 		return None
@@ -510,47 +516,49 @@ class GlobalMenu(AbstractMenu[None]):
 
 		return None
 
-	def _select_disk_config(
+	async def _select_disk_config(
 		self,
 		preset: DiskLayoutConfiguration | None = None,
 	) -> DiskLayoutConfiguration | None:
-		disk_config = DiskLayoutConfigurationMenu(preset).run()
-
+		disk_config = await DiskLayoutConfigurationMenu(preset).show()
 		return disk_config
 
-	def _select_bootloader_config(
+	async def _select_bootloader_config(
 		self,
 		preset: BootloaderConfiguration | None = None,
 	) -> BootloaderConfiguration | None:
 		if preset is None:
-			preset = BootloaderConfiguration.get_default()
+			preset = BootloaderConfiguration.get_default(self._uefi, self._skip_boot)
 
-		bootloader_config = BootloaderMenu(preset).run()
+		bootloader_config = await BootloaderMenu(preset, self._uefi, self._skip_boot).show()
 
 		return bootloader_config
 
-	def _select_profile(self, current_profile: ProfileConfiguration | None) -> ProfileConfiguration | None:
-		from .profile.profile_menu import ProfileMenu
+	async def _select_profile(self, current_profile: ProfileConfiguration | None) -> ProfileConfiguration | None:
+		from archinstall.lib.profile.profile_menu import ProfileMenu
 
-		profile_config = ProfileMenu(preset=current_profile).run()
+		profile_config = await ProfileMenu(preset=current_profile).show()
 		return profile_config
 
-	def _select_additional_packages(self, preset: list[str]) -> list[str]:
+	async def _select_additional_packages(self, preset: list[str]) -> list[str]:
 		config: MirrorConfiguration | None = self._item_group.find_by_key('mirror_config').value
 
 		repositories: set[Repository] = set()
 		if config:
 			repositories = set(config.optional_repositories)
 
-		packages = ask_additional_packages_to_install(
+		packages = await select_additional_packages(
 			preset,
 			repositories=repositories,
 		)
 
 		return packages
 
-	def _mirror_configuration(self, preset: MirrorConfiguration | None = None) -> MirrorConfiguration | None:
-		mirror_configuration = MirrorMenu(preset=preset).run()
+	async def _mirror_configuration(self, preset: MirrorConfiguration | None = None) -> MirrorConfiguration | None:
+		if self._mirror_list_handler is None:
+			self._mirror_list_handler = MirrorListHandler()
+
+		mirror_configuration = await MirrorMenu(self._mirror_list_handler, preset=preset).run()
 
 		if mirror_configuration and mirror_configuration.optional_repositories:
 			# reset the package list cache in case the repository selection has changed

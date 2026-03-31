@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: Poedit 3.5\n"
+"X-Generator: Poedit 3.8\n"
 
 msgid "[!] A log file has been created here: {} {}"
 msgstr "[!] Se ha creado un archivo de registro aquí: {} {}"
@@ -259,7 +259,7 @@ msgstr "Codificación local"
 msgid "Drive(s)"
 msgstr "Disco(s)"
 
-# not sure about this one... we've been saying distribución instead of diseño up to now...  
+# not sure about this one... we've been saying distribución instead of diseño up to now...
 msgid "Disk layout"
 msgstr "Diseño del disco"
 
@@ -1358,7 +1358,7 @@ msgstr "Presione Ctrl+h para obtener ayuda"
 msgid "Choose an option to give Sway access to your hardware"
 msgstr "Elija una opción para darle a Sway acceso a su hardware"
 
-#, fuzzy
+# maybe "Acceso a la estación"  or "Gestión de puestos (seats)" could be better?
 msgid "Seat access"
 msgstr "Acceso al asiento"
 
@@ -1716,7 +1716,6 @@ msgstr "Contraseña para descifrar el archivo de credenciales"
 msgid "Do you want to encrypt the user_credentials.json file?"
 msgstr "¿Desea encriptar el archivo user_credentials.json?"
 
-#, fuzzy
 msgid "Credentials file encryption password"
 msgstr "Contraseña para cifrar el archivo de credenciales"
 
@@ -1747,17 +1746,6 @@ msgstr "¿Desea configurar el servicio de impresión?"
 
 msgid "Power management"
 msgstr "Administración de energía"
-
-msgid "Authentication"
-msgstr "Autenticación"
-
-#, fuzzy
-msgid "Would you like to configure the print service?"
-msgstr "¿Quiere continuar?"
-
-#, fuzzy
-msgid "Power management"
-msgstr "Gestión de particiones: {}"
 
 msgid "Authentication"
 msgstr "Autenticación"
@@ -1865,7 +1853,7 @@ msgid "Firmware that does not properly support NVRAM boot entries."
 msgstr "Firmware que no soporta entradas arrancables NVRAM."
 
 msgid "Will install to /EFI/BOOT/ (removable location, safe default)"
-msgstr "Instalará a /EFI/BOOT/ (ubicación desmontable, segura por defecto)" 
+msgstr "Instalará a /EFI/BOOT/ (ubicación desmontable, segura por defecto)"
 
 msgid "Will install to custom location with NVRAM entry"
 msgstr "Instalará a ubicación personalizada con entrada NVRAM"
@@ -1893,6 +1881,128 @@ msgstr "Usar Gestor de Red (backend por defecto)"
 
 msgid "Use Network Manager (iwd backend)"
 msgstr "Usar gestor de Red (backend iwd)"
+
+msgid "Firewall"
+msgstr "Cortafuegos"
+
+msgid "Select audio configuration"
+msgstr "Seleccionar configuración de audio"
+
+msgid "Enter credentials file decryption password"
+msgstr "Ingrese la contraseña de descifrado del archivo de credenciales"
+
+msgid "Enter root password"
+msgstr "Ingrese la contraseña de root"
+
+msgid "Select bootloader to install"
+msgstr "Seleccione el gestor de arranque que desea instalar"
+
+msgid "Configuration preview"
+msgstr "Vista previa de la configuración"
+
+msgid "Enter a directory for the configuration(s) to be saved"
+msgstr "Ingrese un directorio para guardar las configuraciones"
+
+msgid "Select encryption type"
+msgstr "Seleccione el tipo de cifrado"
+
+msgid "Select disks for the installation"
+msgstr "Seleccione discos para la instalación"
+
+msgid "Enter a mountpoint"
+msgstr "Ingrese un punto de montaje"
+
+#, python-brace-format
+msgid "Enter a size (default: {}): "
+msgstr "Ingrese un tamaño (predeterminado: {}): "
+
+msgid "Enter subvolume name"
+msgstr "Ingrese el nombre del subvolumen"
+
+msgid "Enter subvolume mountpoint"
+msgstr "Ingrese el punto de montaje del subvolumen"
+
+msgid "Select a disk configuration"
+msgstr "Seleccione una configuración de disco"
+
+msgid "Enter root mount directory"
+msgstr "Ingrese al directorio de montaje raíz"
+
+msgid "You will use whatever drive-setup is mounted at the specified directory"
+msgstr "Utilizará cualquier configuración de unidad que esté montada en el directorio especificado"
+
+msgid "WARNING: Archinstall won't check the suitability of this setup"
+msgstr "ADVERTENCIA: Archinstall no comprobará la idoneidad de esta configuración"
+
+msgid "Select main filesystem"
+msgstr "Seleccione el sistema de archivos principal"
+
+msgid "Enter a hostname"
+msgstr "Ingrese un nombre de host"
+
+msgid "Select timezone"
+msgstr "Seleccione una zona horaria"
+
+msgid "Enter the number of parallel downloads to be enabled"
+msgstr "Ingrese el número de descargas paralelas que desea habilitar"
+
+#, python-brace-format
+msgid "Value must be between 1 and {}"
+msgstr "El valor debe estar entre 1 y {}"
+
+msgid "Select which kernel(s) to install"
+msgstr "Seleccione qué núcleo(s) desea instalar"
+
+msgid "Enter a respository name"
+msgstr "Ingrese un nombre de repositorio"
+
+msgid "Enter the repository url"
+msgstr "Ingrese la URL del repositorio"
+
+msgid "Enter server url"
+msgstr "Ingrese la URL del servidor"
+
+msgid "Select mirror regions to be enabled"
+msgstr "Seleccione las regiones espejo que se habilitarán"
+
+msgid "Select optional repositories to be enabled"
+msgstr "Seleccione repositorios opcionales para habilitar"
+
+msgid "Select an interface"
+msgstr "Seleccione una interfaz"
+
+msgid "Choose network configuration"
+msgstr "Elija la configuración de red"
+
+msgid "No packages found"
+msgstr "No se encontraron paquetes"
+
+msgid "Select which greeter to install"
+msgstr "Seleccione el saludo que desea instalar"
+
+msgid "Select a profile type"
+msgstr "Seleccione un tipo de perfil"
+
+msgid "Enter new password"
+msgstr "Ingrese nueva contraseña"
+
+msgid "Enter a username"
+msgstr "Ingrese un nombre de usuario"
+
+msgid "Enter a password"
+msgstr "Ingrese una contraseña"
+
+msgid "The password did not match, please try again"
+msgstr "La contraseña no coincide, por favor inténtelo nuevamente"
+
+msgid "Password strength: Weak"
+msgstr ""
+
+msgid "Password strength: Moderate"
+msgstr ""
+
+msgid "Password strength: Strong"
+msgstr ""
 
 #~ msgid "Add :"
 #~ msgstr "Añadir :"

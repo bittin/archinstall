@@ -5,7 +5,7 @@
 # Contributor: demostanis worlds <demostanis@protonmail.com>
 
 pkgname=archinstall
-pkgver=3.0.15
+pkgver=4.0
 pkgrel=1
 pkgdesc="Just another guided/automated Arch Linux installer with a twist"
 arch=(any)
@@ -29,12 +29,13 @@ depends=(
   'python-pydantic'
   'python-pyparted'
   'python-textual'
+  'python-markdown-it-py'
+  'python-linkify-it-py'
   'systemd'
   'util-linux'
   'xfsprogs'
   'lvm2'
   'f2fs-tools'
-  'ntfs-3g'
   'libfido2'
 )
 makedepends=(

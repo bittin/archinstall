@@ -1,23 +1,24 @@
 import textwrap
 from typing import override
 
+from archinstall.lib.menu.abstract_menu import AbstractSubMenu
 from archinstall.lib.menu.helpers import Confirmation, Selection
+from archinstall.lib.models.bootloader import Bootloader, BootloaderConfiguration
 from archinstall.lib.translationhandler import tr
 from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
 from archinstall.tui.ui.result import ResultType
-
-from ..args import arch_config_handler
-from ..hardware import SysInfo
-from ..menu.abstract_menu import AbstractSubMenu
-from ..models.bootloader import Bootloader, BootloaderConfiguration
 
 
 class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 	def __init__(
 		self,
 		bootloader_conf: BootloaderConfiguration,
+		uefi: bool,
+		skip_boot: bool = False,
 	):
 		self._bootloader_conf = bootloader_conf
+		self._skip_boot = skip_boot
+		self._uefi = uefi
 		menu_options = self._define_menu_options()
 
 		self._item_group = MenuItemGroup(menu_options, sort_items=False, checkmarks=True)
@@ -29,15 +30,14 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 
 	def _define_menu_options(self) -> list[MenuItem]:
 		bootloader = self._bootloader_conf.bootloader
-		has_uefi = SysInfo.has_uefi()
 
 		# UKI availability
-		uki_enabled = has_uefi and bootloader.has_uki_support()
+		uki_enabled = self._uefi and bootloader.has_uki_support()
 		if not uki_enabled:
 			self._bootloader_conf.uki = False
 
 		# Removable availability
-		removable_enabled = has_uefi and bootloader.has_removable_support()
+		removable_enabled = self._uefi and bootloader.has_removable_support()
 		if not removable_enabled:
 			self._bootloader_conf.removable = False
 
@@ -86,17 +86,17 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 		return tr('Will install to custom location with NVRAM entry')
 
 	@override
-	def run(self) -> BootloaderConfiguration:
-		super().run()
+	async def show(self) -> BootloaderConfiguration:
+		_ = await super().show()
 		return self._bootloader_conf
 
-	def _select_bootloader(self, preset: Bootloader | None) -> Bootloader | None:
-		bootloader = ask_for_bootloader(preset)
+	async def _select_bootloader(self, preset: Bootloader | None) -> Bootloader | None:
+		bootloader = await select_bootloader(preset, self._uefi, self._skip_boot)
 
 		if bootloader:
 			# Update UKI option based on bootloader
 			uki_item = self._menu_item_group.find_by_key('uki')
-			if not SysInfo.has_uefi() or not bootloader.has_uki_support():
+			if not self._uefi or not bootloader.has_uki_support():
 				uki_item.enabled = False
 				uki_item.value = False
 				self._bootloader_conf.uki = False
@@ -105,7 +105,7 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 
 			# Update removable option based on bootloader
 			removable_item = self._menu_item_group.find_by_key('removable')
-			if not SysInfo.has_uefi() or not bootloader.has_removable_support():
+			if not self._uefi or not bootloader.has_removable_support():
 				removable_item.enabled = False
 				removable_item.value = False
 				self._bootloader_conf.removable = False
@@ -117,10 +117,10 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 
 		return bootloader
 
-	def _select_uki(self, preset: bool) -> bool:
+	async def _select_uki(self, preset: bool) -> bool:
 		prompt = tr('Would you like to use unified kernel images?') + '\n'
 
-		result = Confirmation(header=prompt, allow_skip=True, preset=preset).show()
+		result = await Confirmation(header=prompt, allow_skip=True, preset=preset).show()
 
 		match result.type_:
 			case ResultType.Skip:
@@ -130,7 +130,7 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 			case ResultType.Reset:
 				raise ValueError('Unhandled result type')
 
-	def _select_removable(self, preset: bool) -> bool:
+	async def _select_removable(self, preset: bool) -> bool:
 		prompt = (
 			tr('Would you like to install the bootloader to the default removable media search location?')
 			+ '\n\n'
@@ -162,7 +162,7 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 			+ '\n'
 		)
 
-		result = Confirmation(
+		result = await Confirmation(
 			header=prompt,
 			allow_skip=True,
 			preset=preset,
@@ -177,33 +177,32 @@ class BootloaderMenu(AbstractSubMenu[BootloaderConfiguration]):
 				raise ValueError('Unhandled result type')
 
 
-def ask_for_bootloader(preset: Bootloader | None) -> Bootloader | None:
+async def select_bootloader(
+	preset: Bootloader | None,
+	uefi: bool,
+	skip_boot: bool = False,
+) -> Bootloader | None:
 	options = []
 	hidden_options = []
-	default = None
 	header = tr('Select bootloader to install')
 
-	if arch_config_handler.args.skip_boot:
-		default = Bootloader.NO_BOOTLOADER
-	else:
+	default = Bootloader.get_default(uefi, skip_boot)
+
+	if not skip_boot:
 		hidden_options += [Bootloader.NO_BOOTLOADER]
 
-	if not SysInfo.has_uefi():
+	if not uefi:
 		options += [Bootloader.Grub, Bootloader.Limine]
-		if not default:
-			default = Bootloader.Grub
 		header += '\n' + tr('UEFI is not detected and some options are disabled')
 	else:
 		options += [b for b in Bootloader if b not in hidden_options]
-		if not default:
-			default = Bootloader.Systemd
 
 	items = [MenuItem(o.value, value=o) for o in options]
 	group = MenuItemGroup(items)
 	group.set_default_by_value(default)
 	group.set_focus_by_value(preset)
 
-	result = Selection[Bootloader](
+	result = await Selection[Bootloader](
 		group,
 		header=header,
 		allow_skip=True,

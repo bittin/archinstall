@@ -9,16 +9,15 @@ from tempfile import NamedTemporaryFile
 from types import ModuleType
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+from archinstall.default_profiles.profile import GreeterType, Profile
+from archinstall.lib.hardware import GfxDriver
+from archinstall.lib.models.profile import ProfileConfiguration
+from archinstall.lib.networking import fetch_data_from_url
+from archinstall.lib.output import debug, error, info
 from archinstall.lib.translationhandler import tr
 
-from ...default_profiles.profile import GreeterType, Profile
-from ..hardware import GfxDriver
-from ..models.profile import ProfileConfiguration
-from ..networking import fetch_data_from_url
-from ..output import debug, error, info
-
 if TYPE_CHECKING:
-	from ..installer import Installer
+	from archinstall.lib.installer import Installer
 
 
 class ProfileSerialization(TypedDict):
@@ -198,6 +197,9 @@ class ProfileHandler:
 			case GreeterType.CosmicSession:
 				packages = ['cosmic-greeter']
 				service = ['cosmic-greeter']
+			case GreeterType.PlasmaLoginManager:
+				packages = ['plasma-login-manager']
+				service = ['plasmalogin']
 
 		if packages:
 			install_session.add_additional_packages(packages)
@@ -235,10 +237,10 @@ class ProfileHandler:
 		if not profile:
 			return
 
-		profile.install(install_session)
-
 		if profile_config.gfx_driver and (profile.is_xorg_type_profile() or profile.is_desktop_profile()):
 			self.install_gfx_driver(install_session, profile_config.gfx_driver)
+
+		profile.install(install_session)
 
 		if profile_config.greeter:
 			self.install_greeter(install_session, profile_config.greeter)

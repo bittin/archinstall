@@ -2,12 +2,12 @@ import getpass
 from pathlib import Path
 from typing import ClassVar
 
+from archinstall.lib.command import SysCommand, SysCommandWorker
+from archinstall.lib.exceptions import SysCallError
 from archinstall.lib.models.device import Fido2Device
-
-from ..exceptions import SysCallError
-from ..general import SysCommand, SysCommandWorker, clear_vt100_escape_codes_from_str
-from ..models.users import Password
-from ..output import error, info
+from archinstall.lib.models.users import Password
+from archinstall.lib.output import error, info
+from archinstall.lib.utils.encoding import clear_vt100_escape_codes_from_str
 
 
 class Fido2:
@@ -61,8 +61,8 @@ class Fido2:
 
 		Output example:
 
-		PATH         MANUFACTURER PRODUCT
-		/dev/hidraw1 Yubico       YubiKey OTP+FIDO+CCID
+		PATH		 MANUFACTURER PRODUCT
+		/dev/hidraw1 Yubico		  YubiKey OTP+FIDO+CCID
 		"""
 
 		# to prevent continuous reloading which will slow

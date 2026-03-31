@@ -13,11 +13,10 @@ import parted
 from parted import Disk, Geometry, Partition
 from pydantic import BaseModel, Field, ValidationInfo, field_serializer, field_validator
 
+from archinstall.lib.hardware import SysInfo
+from archinstall.lib.models.users import Password
+from archinstall.lib.output import debug
 from archinstall.lib.translationhandler import tr
-
-from ..hardware import SysInfo
-from ..models.users import Password
-from ..output import debug
 
 ENC_IDENTIFIER = 'ainst'
 DEFAULT_ITER_TIME = 10000
@@ -201,13 +200,13 @@ class DiskLayoutConfiguration:
 		return config
 
 	def has_default_btrfs_vols(self) -> bool:
-		if self.config_type == DiskLayoutType.Default:
-			for mod in self.device_modifications:
-				for part in mod.partitions:
-					if part.is_create_or_modify():
-						if part.fs_type == FilesystemType.Btrfs:
-							if len(part.btrfs_subvols) > 0:
-								return True
+		for mod in self.device_modifications:
+			for part in mod.partitions:
+				if not (part.is_create_or_modify() and part.fs_type == FilesystemType.Btrfs):
+					continue
+
+				if any(subvol.is_default_root() for subvol in part.btrfs_subvols):
+					return True
 
 		return False
 
@@ -317,10 +316,6 @@ class Size:
 	value: int
 	unit: Unit
 	sector_size: SectorSize
-
-	def __post_init__(self) -> None:
-		if not isinstance(self.sector_size, SectorSize):
-			raise ValueError('sector size must be of type SectorSize')
 
 	def json(self) -> _SizeSerialization:
 		return {
@@ -668,6 +663,9 @@ class SubvolumeModification:
 			return self.mountpoint == Path('/')
 		return False
 
+	def is_default_root(self) -> bool:
+		return self.name == Path('@') and self.is_root()
+
 	def json(self) -> _SubvolumeModificationSerialization:
 		return {'name': str(self.name), 'mountpoint': str(self.mountpoint)}
 
@@ -800,16 +798,6 @@ class FilesystemType(Enum):
 
 	def is_crypto(self) -> bool:
 		return self == FilesystemType.Crypto_luks
-
-	@property
-	def fs_type_mount(self) -> str:
-		match self:
-			case FilesystemType.Ntfs:
-				return 'ntfs3'
-			case FilesystemType.Fat32:
-				return 'vfat'
-			case _:
-				return self.value
 
 	@property
 	def parted_value(self) -> str:

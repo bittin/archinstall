@@ -14,10 +14,25 @@ from subprocess import CalledProcessError
 from types import TracebackType
 from typing import Any, Self
 
-from archinstall.lib.disk.device_handler import device_handler
+from archinstall.lib.boot import Boot
+from archinstall.lib.command import SysCommand, run
 from archinstall.lib.disk.fido import Fido2
-from archinstall.lib.disk.utils import get_lsblk_by_mountpoint, get_lsblk_info
+from archinstall.lib.disk.luks import Luks2, unlock_luks2_dev
+from archinstall.lib.disk.lvm import lvm_import_vg, lvm_pvseg_info, lvm_vol_change
+from archinstall.lib.disk.utils import (
+	get_lsblk_by_mountpoint,
+	get_lsblk_info,
+	get_parent_device_path,
+	get_unique_path_for_device,
+	mount,
+	swapon,
+)
+from archinstall.lib.exceptions import DiskError, HardwareIncompatibilityError, RequirementError, ServiceException, SysCallError
+from archinstall.lib.hardware import SysInfo
+from archinstall.lib.locale.utils import verify_keyboard_layout, verify_x11_keyboard_layout
+from archinstall.lib.mirror.mirror_handler import MirrorListHandler
 from archinstall.lib.models.application import ZramAlgorithm
+from archinstall.lib.models.bootloader import Bootloader
 from archinstall.lib.models.device import (
 	DiskEncryption,
 	DiskLayoutConfiguration,
@@ -31,26 +46,17 @@ from archinstall.lib.models.device import (
 	SubvolumeModification,
 	Unit,
 )
+from archinstall.lib.models.locale import LocaleConfiguration
+from archinstall.lib.models.mirrors import MirrorConfiguration
+from archinstall.lib.models.network import Nic
 from archinstall.lib.models.packages import Repository
-from archinstall.lib.packages import installed_package
+from archinstall.lib.models.users import User
+from archinstall.lib.output import debug, error, info, log, logger, warn
+from archinstall.lib.packages.packages import installed_package
+from archinstall.lib.pacman.config import PacmanConfig
+from archinstall.lib.pacman.pacman import Pacman
+from archinstall.lib.plugins import plugins
 from archinstall.lib.translationhandler import tr
-
-from .args import arch_config_handler
-from .boot import Boot
-from .exceptions import DiskError, HardwareIncompatibilityError, RequirementError, ServiceException, SysCallError
-from .general import SysCommand, run
-from .hardware import SysInfo
-from .locale.utils import verify_keyboard_layout, verify_x11_keyboard_layout
-from .luks import Luks2
-from .models.bootloader import Bootloader
-from .models.locale import LocaleConfiguration
-from .models.mirrors import MirrorConfiguration
-from .models.network import Nic
-from .models.users import User
-from .output import debug, error, info, log, logger, warn
-from .pacman import Pacman
-from .pacman.config import PacmanConfig
-from .plugins import plugins
 
 # Any package that the Installer() is responsible for (optional and the default ones)
 __packages__ = ['base', 'sudo', 'linux-firmware', 'linux', 'linux-lts', 'linux-zen', 'linux-hardened']
@@ -66,6 +72,7 @@ class Installer:
 		disk_config: DiskLayoutConfiguration,
 		base_packages: list[str] = [],
 		kernels: list[str] | None = None,
+		silent: bool = False,
 	):
 		"""
 		`Installer()` is the wrapper for most basic installation steps.
@@ -79,7 +86,6 @@ class Installer:
 		self.target: Path = target
 
 		self.init_time = time.strftime('%Y-%m-%d_%H-%M-%S')
-		self.milliseconds = int(str(time.time()).split('.')[1])
 		self._helper_flags: dict[str, str | bool | None] = {
 			'base': False,
 			'bootloader': None,
@@ -119,7 +125,7 @@ class Installer:
 		self._zram_enabled = False
 		self._disable_fstrim = False
 
-		self.pacman = Pacman(self.target, arch_config_handler.args.silent)
+		self.pacman = Pacman(self.target, silent)
 
 	def __enter__(self) -> Self:
 		return self
@@ -138,7 +144,8 @@ class Installer:
 			# Return None to propagate the exception
 			return None
 
-		self.sync()
+		info(tr('Syncing the system...'))
+		os.sync()
 
 		if not (missing_steps := self.post_install_check()):
 			msg = f'Installation completed without any errors.\nLog files temporarily available at {logger.directory}.\nYou may reboot when ready.\n'
@@ -157,10 +164,6 @@ class Installer:
 			self.sync_log_to_install_medium()
 			return False
 
-	def sync(self) -> None:
-		info(tr('Syncing the system...'))
-		SysCommand('sync')
-
 	def remove_mod(self, mod: str) -> None:
 		if mod in self._modules:
 			self._modules.remove(mod)
@@ -169,14 +172,14 @@ class Installer:
 		if mod not in self._modules:
 			self._modules.append(mod)
 
-	def _verify_service_stop(self) -> None:
+	def _verify_service_stop(self, offline: bool, skip_ntp: bool, skip_wkd: bool) -> None:
 		"""
 		Certain services might be running that affects the system during installation.
 		One such service is "reflector.service" which updates /etc/pacman.d/mirrorlist
 		We need to wait for it before we continue since we opted in to use a custom mirror/region.
 		"""
 
-		if not arch_config_handler.args.skip_ntp:
+		if not skip_ntp:
 			info(tr('Waiting for time sync (timedatectl show) to complete.'))
 
 			started_wait = time.time()
@@ -193,7 +196,7 @@ class Installer:
 		else:
 			info(tr('Skipping waiting for automatic time sync (this can cause issues if time is out of sync during installation)'))
 
-		if not arch_config_handler.args.offline:
+		if not offline:
 			info('Waiting for automatic mirror selection (reflector) to complete.')
 			for _ in range(60):
 				if self._service_state('reflector') in ('dead', 'failed', 'exited'):
@@ -208,7 +211,7 @@ class Installer:
 		# while self._service_state('pacman-init') not in ('dead', 'failed', 'exited'):
 		# time.sleep(1)
 
-		if not arch_config_handler.args.skip_wkd:
+		if not skip_wkd:
 			info(tr('Waiting for Arch Linux keyring sync (archlinux-keyring-wkd-sync) to complete.'))
 			# Wait for the timer to kick in
 			while self._service_started('archlinux-keyring-wkd-sync.timer') is None:
@@ -236,9 +239,14 @@ class Installer:
 					f'Please resize it to at least 200MiB and re-run the installation.',
 				)
 
-	def sanity_check(self) -> None:
+	def sanity_check(
+		self,
+		offline: bool = False,
+		skip_ntp: bool = False,
+		skip_wkd: bool = False,
+	) -> None:
 		# self._verify_boot_part()
-		self._verify_service_stop()
+		self._verify_service_stop(offline, skip_ntp, skip_wkd)
 
 	def mount_ordered_layout(self) -> None:
 		debug('Mounting ordered layout')
@@ -317,7 +325,7 @@ class Installer:
 		partitions: list[PartitionModification],
 	) -> dict[PartitionModification, Luks2]:
 		return {
-			part_mod: device_handler.unlock_luks2_dev(
+			part_mod: unlock_luks2_dev(
 				part_mod.dev_path,
 				part_mod.mapper_name,
 				self._disk_encryption.encryption_password,
@@ -334,17 +342,17 @@ class Installer:
 			return
 
 		for vg in lvm_config.vol_groups:
-			device_handler.lvm_import_vg(vg)
+			lvm_import_vg(vg)
 
 			for vol in vg.volumes:
-				device_handler.lvm_vol_change(vol, True)
+				lvm_vol_change(vol, True)
 
 	def _prepare_luks_lvm(
 		self,
 		lvm_volumes: list[LvmVolume],
 	) -> dict[LvmVolume, Luks2]:
 		return {
-			vol: device_handler.unlock_luks2_dev(
+			vol: unlock_luks2_dev(
 				vol.dev_path,
 				vol.mapper_name,
 				self._disk_encryption.encryption_password,
@@ -360,7 +368,7 @@ class Installer:
 		# it would be none if it's btrfs as the subvolumes will have the mountpoints defined
 		if part_mod.mountpoint:
 			target = self.target / part_mod.relative_mountpoint
-			device_handler.mount(part_mod.dev_path, target, options=part_mod.mount_options)
+			mount(part_mod.dev_path, target, options=part_mod.mount_options)
 		elif part_mod.fs_type == FilesystemType.Btrfs:
 			# Only mount BTRFS subvolumes that have mountpoints specified
 			subvols_with_mountpoints = [sv for sv in part_mod.btrfs_subvols if sv.mountpoint is not None]
@@ -371,13 +379,13 @@ class Installer:
 					part_mod.mount_options,
 				)
 		elif part_mod.is_swap():
-			device_handler.swapon(part_mod.dev_path)
+			swapon(part_mod.dev_path)
 
 	def _mount_lvm_vol(self, volume: LvmVolume) -> None:
 		if volume.fs_type != FilesystemType.Btrfs:
 			if volume.mountpoint and volume.dev_path:
 				target = self.target / volume.relative_mountpoint
-				device_handler.mount(volume.dev_path, target, options=volume.mount_options)
+				mount(volume.dev_path, target, options=volume.mount_options)
 
 		if volume.fs_type == FilesystemType.Btrfs and volume.dev_path:
 			# Only mount BTRFS subvolumes that have mountpoints specified
@@ -396,13 +404,13 @@ class Installer:
 				self._mount_btrfs_subvol(luks_handler.mapper_dev, part_mod.btrfs_subvols, part_mod.mount_options)
 		elif part_mod.mountpoint:
 			target = self.target / part_mod.relative_mountpoint
-			device_handler.mount(luks_handler.mapper_dev, target, options=part_mod.mount_options)
+			mount(luks_handler.mapper_dev, target, options=part_mod.mount_options)
 
 	def _mount_luks_volume(self, volume: LvmVolume, luks_handler: Luks2) -> None:
 		if volume.fs_type != FilesystemType.Btrfs:
 			if volume.mountpoint and luks_handler.mapper_dev:
 				target = self.target / volume.relative_mountpoint
-				device_handler.mount(luks_handler.mapper_dev, target, options=volume.mount_options)
+				mount(luks_handler.mapper_dev, target, options=volume.mount_options)
 
 		if volume.fs_type == FilesystemType.Btrfs and luks_handler.mapper_dev:
 			# Only mount BTRFS subvolumes that have mountpoints specified
@@ -421,7 +429,7 @@ class Installer:
 		for subvol in sorted(subvols_with_mountpoints, key=lambda x: x.relative_mountpoint):
 			mountpoint = self.target / subvol.relative_mountpoint
 			options = mount_options + [f'subvol={subvol.name}']
-			device_handler.mount(dev_path, mountpoint, options=options)
+			mount(dev_path, mountpoint, options=options)
 
 	def generate_key_files(self) -> None:
 		match self._disk_encryption.encryption_type:
@@ -528,6 +536,7 @@ class Installer:
 
 	def set_mirrors(
 		self,
+		mirror_list_handler: MirrorListHandler,
 		mirror_config: MirrorConfiguration,
 		on_target: bool = False,
 	) -> None:
@@ -558,7 +567,7 @@ class Installer:
 			with open(pacman_config, 'a') as fp:
 				fp.write(repositories_config)
 
-		regions_config = mirror_config.regions_config(speed_sort=True)
+		regions_config = mirror_config.regions_config(mirror_list_handler, speed_sort=True)
 		if regions_config:
 			debug(f'Mirrorlist:\n{regions_config}')
 			mirrorlist_config.write_text(regions_config)
@@ -796,14 +805,6 @@ class Installer:
 
 		return True
 
-	def configure_nm_iwd(self) -> None:
-		# Create NetworkManager config directory and write iwd backend conf
-		nm_conf_dir = self.target / 'etc/NetworkManager/conf.d'
-		nm_conf_dir.mkdir(parents=True, exist_ok=True)
-
-		iwd_backend_conf = nm_conf_dir / 'wifi_backend.conf'
-		iwd_backend_conf.write_text('[device]\nwifi.backend=iwd\n')
-
 	def mkinitcpio(self, flags: list[str]) -> bool:
 		for plugin in plugins.values():
 			if hasattr(plugin, 'on_mkinitcpio'):
@@ -853,13 +854,8 @@ class Installer:
 			self._base_packages.append(pkg)
 
 		# https://github.com/archlinux/archinstall/issues/1837
-		if fs_type.fs_type_mount == 'btrfs':
+		if fs_type == FilesystemType.Btrfs:
 			self._disable_fstrim = True
-
-		# There is not yet an fsck tool for NTFS. If it's being used for the root filesystem, the hook should be removed.
-		if fs_type.fs_type_mount == 'ntfs3' and mountpoint == self.target:
-			if 'fsck' in self._hooks:
-				self._hooks.remove('fsck')
 
 	def _prepare_encrypt(self, before: str = 'filesystems') -> None:
 		if self._disk_encryption.hsm_device:
@@ -945,9 +941,6 @@ class Installer:
 			self.set_locale(locale_config)
 			self.set_keyboard_language(locale_config.kb_layout)
 
-		# TODO: Use python functions for this
-		self.arch_chroot('chmod 700 /root')
-
 		if mkinitcpio and not self.mkinitcpio(['-P']):
 			error('Error generating initramfs (continuing anyway)')
 
@@ -1011,27 +1004,19 @@ class Installer:
 			self._configure_grub_btrfsd(snapshot_type)
 			self.enable_service('grub-btrfsd.service')
 
-	def setup_swap(self, kind: str = 'zram', algo: ZramAlgorithm = ZramAlgorithm.ZSTD) -> None:
-		if kind == 'zram':
-			info('Setting up swap on zram')
-			self.pacman.strap('zram-generator')
-			# Get RAM size in MB from hardware info
-			ram_kb = SysInfo.mem_total()
-			# Convert KB to MB and divide by 2, with minimum of 4096 MB
-			size_mb = max(ram_kb // 2048, 4096)
-			info(f'Zram size: {size_mb} from RAM: {ram_kb}')
-			info(f'Zram compression algorithm: {algo.value}')
+	def setup_swap(self, algo: ZramAlgorithm = ZramAlgorithm.ZSTD) -> None:
+		info('Setting up swap on zram')
+		self.pacman.strap('zram-generator')
 
-			with open(f'{self.target}/etc/systemd/zram-generator.conf', 'w') as zram_conf:
-				zram_conf.write('[zram0]\n')
-				zram_conf.write(f'zram-size = {size_mb}\n')
-				zram_conf.write(f'compression-algorithm = {algo.value}\n')
+		info(f'Zram compression algorithm: {algo.value}')
 
-			self.enable_service('systemd-zram-setup@zram0.service')
+		with open(f'{self.target}/etc/systemd/zram-generator.conf', 'w') as zram_conf:
+			zram_conf.write('[zram0]\n')
+			zram_conf.write(f'compression-algorithm = {algo.value}\n')
 
-			self._zram_enabled = True
-		else:
-			raise ValueError('Archinstall currently only supports setting up swap on zram')
+		self.enable_service('systemd-zram-setup@zram0.service')
+
+		self._zram_enabled = True
 
 	def _get_efi_partition(self) -> PartitionModification | None:
 		for layout in self._disk_config.device_modifications:
@@ -1139,7 +1124,7 @@ class Installer:
 				if not lvm.vg_name:
 					raise ValueError(f'Unable to determine VG name for {lvm.name}')
 
-				pv_seg_info = device_handler.lvm_pvseg_info(lvm.vg_name, lvm.name)
+				pv_seg_info = lvm_pvseg_info(lvm.vg_name, lvm.name)
 
 				if not pv_seg_info:
 					raise ValueError(f'Unable to determine PV segment info for {lvm.vg_name}/{lvm.name}')
@@ -1193,7 +1178,7 @@ class Installer:
 
 			kernel_parameters.append('rw')
 
-		kernel_parameters.append(f'rootfstype={root.safe_fs_type.fs_type_mount}')
+		kernel_parameters.append(f'rootfstype={root.safe_fs_type.value}')
 		kernel_parameters.extend(self._kernel_params)
 
 		debug(f'kernel parameters: {" ".join(kernel_parameters)}')
@@ -1374,7 +1359,7 @@ class Installer:
 		else:
 			info(f'GRUB boot partition: {boot_partition.dev_path}')
 
-			parent_dev_path = device_handler.get_parent_device_path(boot_partition.safe_dev_path)
+			parent_dev_path = get_parent_device_path(boot_partition.safe_dev_path)
 
 			add_options = [
 				'--target=i386-pc',
@@ -1468,7 +1453,7 @@ class Installer:
 
 			info(f'Limine EFI partition: {efi_partition.dev_path}')
 
-			parent_dev_path = device_handler.get_parent_device_path(efi_partition.safe_dev_path)
+			parent_dev_path = get_parent_device_path(efi_partition.safe_dev_path)
 
 			try:
 				efi_dir_path = self.target / efi_partition.mountpoint.relative_to('/') / 'EFI'
@@ -1531,9 +1516,9 @@ class Installer:
 
 			config_path = boot_limine_path / 'limine.conf'
 
-			parent_dev_path = device_handler.get_parent_device_path(boot_partition.safe_dev_path)
+			parent_dev_path = get_parent_device_path(boot_partition.safe_dev_path)
 
-			if unique_path := device_handler.get_unique_path_for_device(parent_dev_path):
+			if unique_path := get_unique_path_for_device(parent_dev_path):
 				parent_dev_path = unique_path
 
 			try:
@@ -1617,9 +1602,9 @@ class Installer:
 
 		if not uki_enabled:
 			loader = '/vmlinuz-{kernel}'
-
+			# EFI standards stipulate backslashes
 			entries = (
-				'initrd=/initramfs-{kernel}.img',
+				r'initrd=\initramfs-{kernel}.img',
 				*self._get_kernel_params(root),
 			)
 
@@ -1628,7 +1613,7 @@ class Installer:
 			loader = '/EFI/Linux/arch-{kernel}.efi'
 			cmdline = []
 
-		parent_dev_path = device_handler.get_parent_device_path(boot_partition.safe_dev_path)
+		parent_dev_path = get_parent_device_path(boot_partition.safe_dev_path)
 
 		cmd_template = (
 			'efibootmgr',
@@ -2011,7 +1996,7 @@ class Installer:
 
 			# In accordance with https://github.com/archlinux/archinstall/issues/107#issuecomment-841701968
 			# Setting an empty keymap first, allows the subsequent call to set layout for both console and x11.
-			with Boot(self) as session:
+			with Boot(self.target) as session:
 				os.system('systemd-run --machine=archinstall --pty localectl set-keymap ""')
 
 				try:
@@ -2037,7 +2022,7 @@ class Installer:
 				error(f'Invalid x11-keyboard language specified: {language}')
 				return False
 
-			with Boot(self) as session:
+			with Boot(self.target) as session:
 				session.SysCommand(['localectl', 'set-x11-keymap', '""'])
 
 				try:

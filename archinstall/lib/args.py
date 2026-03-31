@@ -6,7 +6,6 @@ import urllib.error
 import urllib.parse
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass, field
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Self
 from urllib.request import Request, urlopen
@@ -14,6 +13,7 @@ from urllib.request import Request, urlopen
 from pydantic.dataclasses import dataclass as p_dataclass
 
 from archinstall.lib.crypt import decrypt
+from archinstall.lib.menu.util import get_password
 from archinstall.lib.models.application import ApplicationConfiguration, ZramConfiguration
 from archinstall.lib.models.authentication import AuthenticationConfiguration
 from archinstall.lib.models.bootloader import Bootloader, BootloaderConfiguration
@@ -27,7 +27,8 @@ from archinstall.lib.models.users import Password, User, UserSerialization
 from archinstall.lib.output import debug, error, logger, warn
 from archinstall.lib.plugins import load_plugin
 from archinstall.lib.translationhandler import Language, tr, translation_handler
-from archinstall.lib.utils.util import get_password
+from archinstall.lib.version import get_version
+from archinstall.tui.ui.components import tui
 
 
 @p_dataclass
@@ -77,7 +78,7 @@ class ArchConfig:
 	services: list[str] = field(default_factory=list)
 	custom_commands: list[str] = field(default_factory=list)
 
-	def unsafe_json(self) -> dict[str, Any]:
+	def unsafe_config(self) -> dict[str, Any]:
 		config: dict[str, list[UserSerialization] | str | None] = {}
 
 		if self.auth_config:
@@ -94,7 +95,7 @@ class ArchConfig:
 
 		return config
 
-	def safe_json(self) -> dict[str, Any]:
+	def safe_config(self) -> dict[str, Any]:
 		config: Any = {
 			'version': self.version,
 			'script': self.script,
@@ -263,7 +264,7 @@ class ArchConfigHandler:
 
 		try:
 			self._config = ArchConfig.from_config(config, args)
-			self._config.version = self._get_version()
+			self._config.version = get_version()
 		except ValueError as err:
 			warn(str(err))
 			sys.exit(1)
@@ -288,12 +289,6 @@ class ArchConfigHandler:
 	def print_help(self) -> None:
 		self._parser.print_help()
 
-	def _get_version(self) -> str:
-		try:
-			return version('archinstall')
-		except Exception:
-			return 'Archinstall version not found'
-
 	def _define_arguments(self) -> ArgumentParser:
 		parser = ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 		parser.add_argument(
@@ -301,7 +296,7 @@ class ArchConfigHandler:
 			'--version',
 			action='version',
 			default=False,
-			version='%(prog)s ' + self._get_version(),
+			version='%(prog)s ' + get_version(),
 		)
 		parser.add_argument(
 			'--config',
@@ -497,16 +492,17 @@ class ArchConfigHandler:
 						debug(f'Error decrypting credentials file: {err}')
 						raise err from err
 			else:
-				incorrect_password = False
 				header = tr('Enter credentials file decryption password')
+				wrong_pwd_text = tr('Incorrect password')
+				prompt = header
 
 				while True:
-					prompt = f'{header}\n\n' + tr('Incorrect password') if incorrect_password else ''
-
-					decryption_pwd = get_password(
-						header=prompt,
-						allow_skip=False,
-						skip_confirmation=True,
+					decryption_pwd: Password | None = tui.run(
+						lambda p=prompt: get_password(  # type: ignore[misc]
+							header=p,
+							allow_skip=False,
+							no_confirmation=True,
+						)
 					)
 
 					if not decryption_pwd:
@@ -518,7 +514,7 @@ class ArchConfigHandler:
 					except ValueError as err:
 						if 'Invalid password' in str(err):
 							debug('Incorrect credentials file decryption password')
-							incorrect_password = True
+							prompt = f'{header}' + f'\n\n{wrong_pwd_text}'
 						else:
 							debug(f'Error decrypting credentials file: {err}')
 							raise err from err
@@ -555,6 +551,3 @@ class ArchConfigHandler:
 				clean_args[key] = val
 
 		return clean_args
-
-
-arch_config_handler: ArchConfigHandler = ArchConfigHandler()
