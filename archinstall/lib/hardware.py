@@ -41,10 +41,9 @@ class GfxPackage(Enum):
 	Dkms = 'dkms'
 	IntelMediaDriver = 'intel-media-driver'
 	LibvaIntelDriver = 'libva-intel-driver'
-	LibvaMesaDriver = 'libva-mesa-driver'
 	LibvaNvidiaDriver = 'libva-nvidia-driver'
 	Mesa = 'mesa'
-	NvidiaDkms = 'nvidia-dkms'
+	NvidiaOpen = 'nvidia-open'
 	NvidiaOpenDkms = 'nvidia-open-dkms'
 	VulkanIntel = 'vulkan-intel'
 	VulkanRadeon = 'vulkan-radeon'
@@ -52,8 +51,6 @@ class GfxPackage(Enum):
 	Xf86VideoAmdgpu = 'xf86-video-amdgpu'
 	Xf86VideoAti = 'xf86-video-ati'
 	Xf86VideoNouveau = 'xf86-video-nouveau'
-	XorgServer = 'xorg-server'
-	XorgXinit = 'xorg-xinit'
 
 
 class GfxDriver(Enum):
@@ -62,12 +59,11 @@ class GfxDriver(Enum):
 	IntelOpenSource = 'Intel (open-source)'
 	NvidiaOpenKernel = 'Nvidia (open kernel module for newer GPUs, Turing+)'
 	NvidiaOpenSource = 'Nvidia (open-source nouveau driver)'
-	NvidiaProprietary = 'Nvidia (proprietary)'
 	VMOpenSource = 'VirtualBox (open-source)'
 
 	def is_nvidia(self) -> bool:
 		match self:
-			case GfxDriver.NvidiaProprietary | GfxDriver.NvidiaOpenSource | GfxDriver.NvidiaOpenKernel:
+			case GfxDriver.NvidiaOpenSource | GfxDriver.NvidiaOpenKernel:
 				return True
 			case _:
 				return False
@@ -82,7 +78,7 @@ class GfxDriver(Enum):
 		return text
 
 	def gfx_packages(self) -> list[GfxPackage]:
-		packages = [GfxPackage.XorgServer, GfxPackage.XorgXinit]
+		packages: list[GfxPackage] = []
 
 		match self:
 			case GfxDriver.AllOpenSource:
@@ -91,7 +87,6 @@ class GfxDriver(Enum):
 					GfxPackage.Xf86VideoAmdgpu,
 					GfxPackage.Xf86VideoAti,
 					GfxPackage.Xf86VideoNouveau,
-					GfxPackage.LibvaMesaDriver,
 					GfxPackage.LibvaIntelDriver,
 					GfxPackage.IntelMediaDriver,
 					GfxPackage.VulkanRadeon,
@@ -103,7 +98,6 @@ class GfxDriver(Enum):
 					GfxPackage.Mesa,
 					GfxPackage.Xf86VideoAmdgpu,
 					GfxPackage.Xf86VideoAti,
-					GfxPackage.LibvaMesaDriver,
 					GfxPackage.VulkanRadeon,
 				]
 			case GfxDriver.IntelOpenSource:
@@ -123,14 +117,7 @@ class GfxDriver(Enum):
 				packages += [
 					GfxPackage.Mesa,
 					GfxPackage.Xf86VideoNouveau,
-					GfxPackage.LibvaMesaDriver,
 					GfxPackage.VulkanNouveau,
-				]
-			case GfxDriver.NvidiaProprietary:
-				packages += [
-					GfxPackage.NvidiaDkms,
-					GfxPackage.Dkms,
-					GfxPackage.LibvaNvidiaDriver,
 				]
 			case GfxDriver.VMOpenSource:
 				packages += [

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import importlib.util
 import inspect
 import sys
@@ -9,8 +7,8 @@ from tempfile import NamedTemporaryFile
 from types import ModuleType
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
-from archinstall.default_profiles.profile import GreeterType, Profile
-from archinstall.lib.hardware import GfxDriver
+from archinstall.default_profiles.profile import CustomSetting, GreeterType, Profile
+from archinstall.lib.hardware import GfxDriver, GfxPackage
 from archinstall.lib.models.profile import ProfileConfiguration
 from archinstall.lib.networking import fetch_data_from_url
 from archinstall.lib.output import debug, error, info
@@ -23,7 +21,7 @@ if TYPE_CHECKING:
 class ProfileSerialization(TypedDict):
 	main: NotRequired[str]
 	details: NotRequired[list[str]]
-	custom_settings: NotRequired[dict[str, dict[str, str | None]]]
+	custom_settings: NotRequired[dict[str, dict[CustomSetting, str | None]]]
 	path: NotRequired[str]
 
 
@@ -75,29 +73,6 @@ class ProfileHandler:
 			else:
 				self._import_profile_from_url(url_path)
 
-		# if custom := profile_config.get('custom', None):
-		# 	from archinstall.default_profiles.custom import CustomTypeProfile
-		# 	custom_types = []
-		#
-		# 	for entry in custom:
-		# 		custom_types.append(
-		# 			CustomTypeProfile(
-		# 				entry['name'],
-		# 				entry['enabled'],
-		# 				entry.get('packages', []),
-		# 				entry.get('services', [])
-		# 			)
-		# 		)
-		#
-		# 	self.remove_custom_profiles(custom_types)
-		# 	self.add_custom_profiles(custom_types)
-		#
-		# 	# this doesn't mean it's actual going to be set as a selection
-		# 	# but we are simply populating the custom profile with all
-		# 	# possible custom definitions
-		# 	if custom_profile := self.get_profile_by_name('Custom'):
-		# 		custom_profile.set_current_selection(custom_types)
-
 		if main := profile_config.get('main', None):
 			profile = self.get_profile_by_name(main) if main else None
 
@@ -111,7 +86,7 @@ class ProfileHandler:
 		if details:
 			for detail in filter(None, details):
 				# [2024-04-19] TODO: Backwards compatibility after naming change: https://github.com/archlinux/archinstall/pull/2421
-				#                    'Kde' is deprecated, remove this block in a future version
+				# 'Kde' is deprecated, remove this block in a future version
 				if detail == 'Kde':
 					detail = 'KDE Plasma'
 
@@ -222,13 +197,22 @@ class ProfileHandler:
 	def install_gfx_driver(self, install_session: Installer, driver: GfxDriver) -> None:
 		debug(f'Installing GFX driver: {driver.value}')
 
-		if driver in [GfxDriver.NvidiaOpenKernel, GfxDriver.NvidiaProprietary]:
-			headers = [f'{kernel}-headers' for kernel in install_session.kernels]
-			# Fixes https://github.com/archlinux/archinstall/issues/585
-			install_session.add_additional_packages(headers)
-
 		driver_pkgs = driver.gfx_packages()
 		pkg_names = [p.value for p in driver_pkgs]
+
+		# For Nvidia open kernel modules, use nvidia-open instead of nvidia-open-dkms
+		# when all selected kernels are mainline (no dkms needed). This avoids
+		# installing dkms + kernel headers and speeds up installation.
+		if driver == GfxDriver.NvidiaOpenKernel:
+			needs_dkms = any('-' in k for k in install_session.kernels)
+
+			if needs_dkms:
+				headers = [f'{kernel}-headers' for kernel in install_session.kernels]
+				install_session.add_additional_packages(headers)
+			else:
+				pkg_names = [GfxPackage.NvidiaOpen.value if p == GfxPackage.NvidiaOpenDkms.value else p for p in pkg_names]
+				pkg_names = [p for p in pkg_names if p != GfxPackage.Dkms.value]
+
 		install_session.add_additional_packages(pkg_names)
 
 	def install_profile_config(self, install_session: Installer, profile_config: ProfileConfiguration) -> None:
@@ -340,8 +324,8 @@ class ProfileHandler:
 		profiles_path = Path(__file__).parents[2] / 'default_profiles'
 		profiles = []
 		for file in profiles_path.glob('**/*.py'):
-			# ignore the abstract default_profiles class
-			if 'profile.py' in file.name:
+			# ignore the abstract base classes
+			if file.name == 'profile.py':
 				continue
 			profiles += self._process_profile_file(file)
 

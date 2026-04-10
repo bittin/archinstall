@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, TypedDict
 
@@ -38,6 +36,12 @@ class ProfileConfiguration:
 		profile = profile_handler.parse_profile_config(arg['profile'])
 		greeter = arg.get('greeter', None)
 		gfx_driver = arg.get('gfx_driver', None)
+
+		if gfx_driver == 'Nvidia (proprietary)':
+			raise ValueError(
+				'The Nvidia proprietary driver (nvidia-dkms) has been removed from the Arch repos. '
+				'Please use "Nvidia (open kernel module for newer GPUs, Turing+)" instead.'
+			)
 
 		return cls(
 			profile,
