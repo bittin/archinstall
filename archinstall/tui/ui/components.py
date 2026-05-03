@@ -350,7 +350,7 @@ class OptionListScreen(BaseScreen[ValueT]):
 
 	def _set_preview(self, item_id: str) -> None:
 		if self._preview_location is None:
-			return None
+			return
 
 		preview_widget = self.query_one('#preview_content', Label)
 		item = self._group.find_by_id(item_id)
@@ -530,7 +530,7 @@ class SelectListScreen(BaseScreen[ValueT]):
 		selection_list = self.query_one(SelectionList)
 
 		if not selection_list.has_focus or event.key != 'enter':
-			return None
+			return
 
 		if len(self._selected_items) < 1:
 			index = selection_list.highlighted
@@ -743,7 +743,7 @@ class ConfirmationScreen(BaseScreen[ValueT]):
 			if self._is_btn_focus():
 				item = self._group.focus_item
 				if not item:
-					return None
+					return
 				_ = self.dismiss(Result(ResultType.Selection, _item=item))
 
 
@@ -1272,6 +1272,13 @@ class _AppInstance(App[ValueT]):
 		super().__init__(ansi_color=True)
 		self._main = main
 
+	@override
+	async def _on_exit_app(self) -> None:
+		from archinstall.lib.translationhandler import translation_handler
+
+		translation_handler.restore_console_font()
+		await super()._on_exit_app()
+
 	def action_trigger_help(self) -> None:
 		from textual.widgets import HelpPanel
 
@@ -1281,6 +1288,9 @@ class _AppInstance(App[ValueT]):
 			_ = self.screen.mount(HelpPanel())
 
 	def on_mount(self) -> None:
+		from archinstall.lib.translationhandler import translation_handler
+
+		translation_handler.apply_console_font()
 		_translate_bindings(self._merged_bindings, self._bindings)
 		self._run_worker()
 
