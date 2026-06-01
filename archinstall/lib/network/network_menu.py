@@ -6,8 +6,8 @@ from archinstall.lib.menu.list_manager import ListManager
 from archinstall.lib.models.network import NetworkConfiguration, Nic, NicType
 from archinstall.lib.networking import list_interfaces
 from archinstall.lib.translationhandler import tr
-from archinstall.tui.ui.menu_item import MenuItem, MenuItemGroup
-from archinstall.tui.ui.result import ResultType
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.result import ResultType
 
 
 class ManualNetworkConfig(ListManager[Nic]):
@@ -202,6 +202,8 @@ async def select_network(preset: NetworkConfiguration | None) -> NetworkConfigur
 					return NetworkConfiguration(NicType.NM)
 				case NicType.NM_IWD:
 					return NetworkConfiguration(NicType.NM_IWD)
+				case NicType.IWD:
+					return NetworkConfiguration(NicType.IWD)
 				case NicType.MANUAL:
 					preset_nics = preset.nics if preset else []
 					nics = await ManualNetworkConfig(tr('Configure interfaces'), preset_nics).show()
