@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum, auto
@@ -237,7 +235,7 @@ class MenuItemGroup:
 
 	@cached_property
 	def _max_items_text_width(self) -> int:
-		return max([len(item.text) for item in self._menu_items])
+		return max(len(item.text) for item in self._menu_items)
 
 	def _default_suffix(self, item: MenuItem) -> str:
 		if self.default_item == item:

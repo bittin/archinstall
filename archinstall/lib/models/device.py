@@ -11,7 +11,6 @@ import parted
 from parted import Disk, Geometry, Partition
 from pydantic import BaseModel, Field, ValidationInfo, field_serializer, field_validator
 
-from archinstall.lib.hardware import SysInfo
 from archinstall.lib.log import debug
 from archinstall.lib.models.config import SubConfig
 from archinstall.lib.models.users import Password
@@ -93,7 +92,7 @@ class DiskLayoutConfiguration(SubConfig):
 	def summary(self) -> list[str]:
 		out = [tr('{} layout').format(self.config_type.short_msg())]
 
-		devices = set(mod.device_path for mod in self.device_modifications)
+		devices = {mod.device_path for mod in self.device_modifications}
 
 		if devices:
 			dev_str = ', '.join(str(d) for d in devices)
@@ -256,10 +255,6 @@ class PartitionTable(Enum):
 
 	def is_mbr(self) -> bool:
 		return self == PartitionTable.MBR
-
-	@classmethod
-	def default(cls) -> Self:
-		return cls.GPT if SysInfo.has_uefi() else cls.MBR
 
 
 class Units(Enum):
@@ -523,7 +518,7 @@ class _BtrfsSubvolumeInfo:
 @dataclass
 class _PartitionInfo:
 	partition: Partition
-	name: str
+	name: str | None
 	type: PartitionType
 	fs_type: FilesystemType | None
 	path: Path
@@ -546,7 +541,6 @@ class _PartitionInfo:
 		end = self.start + self.length
 
 		part_info = {
-			'Name': self.name,
 			'Type': self.type.value,
 			'Filesystem': self.fs_type.value if self.fs_type else tr('Unknown'),
 			'Path': str(self.path),
@@ -555,6 +549,9 @@ class _PartitionInfo:
 			'Size': self.length.format_highest(),
 			'Flags': ', '.join(f.description for f in self.flags),
 		}
+
+		if self.name is not None:
+			part_info = {'Name': self.name, **part_info}
 
 		if self.btrfs_subvol_infos:
 			part_info['Btrfs vol.'] = f'{len(self.btrfs_subvol_infos)} subvolumes'
@@ -567,7 +564,7 @@ class _PartitionInfo:
 		partition: Partition,
 		lsblk_info: LsblkInfo,
 		fs_type: FilesystemType | None,
-		btrfs_subvol_infos: list[_BtrfsSubvolumeInfo] = [],
+		btrfs_subvol_infos: list[_BtrfsSubvolumeInfo] | None = None,
 	) -> Self:
 		partition_type = PartitionType.get_type_from_code(partition.type)
 		flags = [f for f in PartitionFlag if partition.getFlag(f.flag_id)]
@@ -579,14 +576,17 @@ class _PartitionInfo:
 		)
 
 		length = Size(
-			int(partition.getLength(unit='B')),
+			partition.getLength(unit='B'),
 			Unit.B,
 			SectorSize(partition.disk.device.sectorSize, Unit.B),
 		)
 
+		if btrfs_subvol_infos is None:
+			btrfs_subvol_infos = []
+
 		return cls(
 			partition=partition,
-			name=partition.get_name(),
+			name=partition.name,
 			type=partition_type,
 			fs_type=fs_type,
 			path=Path(partition.path),
@@ -618,7 +618,7 @@ class _DeviceInfo:
 		return hash(self.path)
 
 	def table_data(self) -> dict[str, str | int | bool]:
-		total_free_space = sum([region.get_length(unit=Unit.MiB) for region in self.free_space_regions])
+		total_free_space = sum(region.get_length(unit=Unit.MiB) for region in self.free_space_regions)
 		return {
 			'Model': self.model,
 			'Path': str(self.path),
@@ -648,7 +648,7 @@ class _DeviceInfo:
 			path=Path(device.path),
 			type=device_type,
 			sector_size=sector_size,
-			total_size=Size(int(device.getLength(unit='B')), Unit.B, sector_size),
+			total_size=Size(device.getLength(unit='B'), Unit.B, sector_size),
 			free_space_regions=free_space,
 			read_only=device.readOnly,
 			dirty=device.dirty,
@@ -710,7 +710,7 @@ class SubvolumeModification:
 
 
 class DeviceGeometry:
-	def __init__(self, geometry: Geometry, sector_size: SectorSize):
+	def __init__(self, geometry: Geometry, sector_size: SectorSize) -> None:
 		self._geometry = geometry
 		self._sector_size = sector_size
 
@@ -758,20 +758,19 @@ class PartitionType(StrEnum):
 	PRIMARY = auto()
 	_UNKNOWN = 'unknown'
 
-	@classmethod
-	def get_type_from_code(cls, code: int) -> Self:
+	@staticmethod
+	def get_type_from_code(code: int) -> PartitionType:
 		if code == parted.PARTITION_NORMAL:
-			return cls.PRIMARY
+			return PartitionType.PRIMARY
 		else:
 			debug(f'Partition code not supported: {code}')
-			return cls._UNKNOWN
+			return PartitionType._UNKNOWN
 
-	def get_partition_code(self) -> int | None:
-		if self == PartitionType.PRIMARY:
-			return parted.PARTITION_NORMAL
-		elif self == PartitionType.BOOT:
+	def get_partition_code(self) -> int:
+		if self == PartitionType.BOOT:
 			return parted.PARTITION_BOOT
-		return None
+
+		return parted.PARTITION_NORMAL
 
 
 @dataclass(frozen=True)
@@ -805,9 +804,11 @@ class PartitionFlag(PartitionFlagDataMixin, Enum):
 
 class PartitionGUID(Enum):
 	"""
-	A list of Partition type GUIDs (lsblk -o+PARTTYPE) can be found here: https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
+	A list of Partition type GUIDs (lsblk -o+PARTTYPE) can be found here:
+	https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
 	"""
 
+	LINUX_ROOT_AARCH64 = 'B921B045-1DF0-41C3-AF44-4C6F280D3FAE'
 	LINUX_ROOT_X86_64 = '4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709'
 
 	@property
@@ -1618,7 +1619,7 @@ class LsblkInfo(BaseModel):
 	fsver: str | None
 	fsavail: int | None
 	fsuse_percentage: str | None = Field(alias='fsuse%')
-	type: str | None  # may be None for strange behavior with md devices
+	type: str
 	mountpoint: Path | None
 	mountpoints: list[Path]
 	fsroots: list[Path]

@@ -51,7 +51,7 @@ class DiskMenuConfig:
 
 
 class DiskLayoutConfigurationMenu(AbstractSubMenu[DiskMenuConfig]):
-	def __init__(self, disk_layout_config: DiskLayoutConfiguration | None):
+	def __init__(self, disk_layout_config: DiskLayoutConfiguration | None) -> None:
 		if not disk_layout_config:
 			self._disk_menu_config = DiskMenuConfig(
 				disk_config=None,
@@ -297,7 +297,7 @@ class DiskLayoutConfigurationMenu(AbstractSubMenu[DiskMenuConfig]):
 		return None
 
 
-async def select_devices(preset: list[BDevice] | None = []) -> list[BDevice] | None:
+async def select_devices(preset: list[BDevice] | None = None) -> list[BDevice] | None:
 	def _preview_device_selection(item: MenuItem) -> str | None:
 		device: _DeviceInfo = item.value  # type: ignore[assignment]
 		dev = device_handler.get_device(device.path)
@@ -305,9 +305,6 @@ async def select_devices(preset: list[BDevice] | None = []) -> list[BDevice] | N
 		if dev and dev.partition_infos:
 			return as_table(dev.partition_infos)
 		return None
-
-	if preset is None:
-		preset = []
 
 	devices = device_handler.devices
 
@@ -324,7 +321,10 @@ async def select_devices(preset: list[BDevice] | None = []) -> list[BDevice] | N
 		for d in devices
 	]
 
-	presets = [p.device_info for p in preset]
+	if preset is None:
+		presets = []
+	else:
+		presets = [p.device_info for p in preset]
 
 	group = MenuItemGroup(items)
 	group.set_selected_by_value(presets)
@@ -379,7 +379,7 @@ async def _manual_partitioning(
 	modifications: list[DeviceModification] = []
 
 	for device in devices:
-		mod = next(filter(lambda x: x.device == device, preset), None)
+		mod = next((x for x in preset if x.device == device), None)
 		if not mod:
 			mod = DeviceModification(device, wipe=False)
 
@@ -846,7 +846,7 @@ async def suggest_lvm_layout(
 		raise ValueError('Unable to find boot partition in partition modifications')
 
 	total_vol_available = sum(
-		[p.length for p in other_part],
+		(p.length for p in other_part),
 		Size(0, Unit.B, SectorSize.default()),
 	)
 	root_vol_size = process_root_partition_size(total_vol_available, SectorSize.default())

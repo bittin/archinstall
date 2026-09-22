@@ -1,8 +1,8 @@
 import os
-from enum import Enum
+from dataclasses import dataclass
+from enum import Enum, StrEnum
 from functools import cached_property
 from pathlib import Path
-from typing import Self
 
 from archinstall.lib.command import SysCommand
 from archinstall.lib.exceptions import SysCallError
@@ -11,29 +11,21 @@ from archinstall.lib.networking import enrich_iface_types, list_interfaces
 from archinstall.lib.translationhandler import tr
 
 
-class CpuVendor(Enum):
-	AuthenticAMD = 'amd'
-	GenuineIntel = 'intel'
-	_Unknown = 'unknown'
-
-	@classmethod
-	def get_vendor(cls, name: str) -> Self:
-		if vendor := getattr(cls, name, None):
-			return vendor
-		else:
-			debug(f"Unknown CPU vendor '{name}' detected.")
-			return cls._Unknown
+class CPUVendor(StrEnum):
+	AMD = 'AuthenticAMD'
+	INTEL = 'GenuineIntel'
+	_UNKNOWN = 'unknown'
 
 	def _has_microcode(self) -> bool:
 		match self:
-			case CpuVendor.AuthenticAMD | CpuVendor.GenuineIntel:
+			case CPUVendor.AMD | CPUVendor.INTEL:
 				return True
 			case _:
 				return False
 
 	def get_ucode(self) -> Path | None:
 		if self._has_microcode():
-			return Path(self.value + '-ucode.img')
+			return Path(self.name.lower() + '-ucode.img')
 		return None
 
 
@@ -41,6 +33,8 @@ class GfxPackage(Enum):
 	Dkms = 'dkms'
 	IntelMediaDriver = 'intel-media-driver'
 	LibvaIntelDriver = 'libva-intel-driver'
+	VplGpuRt = 'vpl-gpu-rt'
+	LibVpl = 'libvpl'
 	LibvaNvidiaDriver = 'libva-nvidia-driver'
 	Mesa = 'mesa'
 	NvidiaOpen = 'nvidia-open'
@@ -102,6 +96,8 @@ class GfxDriver(Enum):
 					GfxPackage.Xf86VideoNouveau,
 					GfxPackage.LibvaIntelDriver,
 					GfxPackage.IntelMediaDriver,
+					GfxPackage.VplGpuRt,
+					GfxPackage.LibVpl,
 					GfxPackage.VulkanRadeon,
 					GfxPackage.VulkanIntel,
 					GfxPackage.VulkanNouveau,
@@ -118,6 +114,8 @@ class GfxDriver(Enum):
 					GfxPackage.Mesa,
 					GfxPackage.LibvaIntelDriver,
 					GfxPackage.IntelMediaDriver,
+					GfxPackage.VplGpuRt,
+					GfxPackage.LibVpl,
 					GfxPackage.VulkanIntel,
 				]
 			case GfxDriver.NvidiaOpenKernel:
@@ -171,25 +169,6 @@ class _SysInfo:
 					cpu[key.strip()] = value.strip()
 
 		return cpu
-
-	@cached_property
-	def mem_info(self) -> dict[str, int]:
-		"""
-		Returns system memory information
-		"""
-		mem_info_path = Path('/proc/meminfo')
-		mem_info: dict[str, int] = {}
-
-		with mem_info_path.open() as file:
-			for line in file:
-				key, value = line.strip().split(':')
-				num = value.split()[0]
-				mem_info[key] = int(num)
-
-		return mem_info
-
-	def mem_info_by_key(self, key: str) -> int:
-		return self.mem_info[key]
 
 	@cached_property
 	def loaded_modules(self) -> list[str]:
@@ -253,9 +232,13 @@ class SysInfo:
 		return any('intel' in x.lower() for x in _sys_info.graphics_devices)
 
 	@staticmethod
-	def cpu_vendor() -> CpuVendor | None:
+	def cpu_vendor() -> CPUVendor | None:
 		if vendor := _sys_info.cpu_info.get('vendor_id'):
-			return CpuVendor.get_vendor(vendor)
+			try:
+				return CPUVendor(vendor)
+			except ValueError:
+				debug(f"Unknown CPU vendor '{vendor}' detected.")
+				return CPUVendor._UNKNOWN
 		return None
 
 	@staticmethod
@@ -277,18 +260,6 @@ class SysInfo:
 				return product.read().strip()
 		except FileNotFoundError:
 			return None
-
-	@staticmethod
-	def mem_available() -> int:
-		return _sys_info.mem_info_by_key('MemAvailable')
-
-	@staticmethod
-	def mem_free() -> int:
-		return _sys_info.mem_info_by_key('MemFree')
-
-	@staticmethod
-	def mem_total() -> int:
-		return _sys_info.mem_info_by_key('MemTotal')
 
 	@staticmethod
 	def virtualization() -> str | None:
@@ -345,3 +316,26 @@ class SysInfo:
 				return True
 
 		return False
+
+
+@dataclass(frozen=True)
+class MemInfo:
+	mem_total: int
+	mem_free: int
+	mem_available: int
+
+
+def read_meminfo() -> MemInfo:
+	data: dict[str, int] = {}
+
+	with Path('/proc/meminfo').open() as file:
+		for line in file:
+			key, _, remainder = line.partition(':')
+			num, _, _ = remainder.strip().partition(' ')
+			data[key] = int(num)
+
+	return MemInfo(
+		mem_total=data['MemTotal'],
+		mem_free=data['MemFree'],
+		mem_available=data['MemAvailable'],
+	)

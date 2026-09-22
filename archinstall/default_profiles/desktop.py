@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class DesktopProfile(Profile):
-	def __init__(self, current_selection: list[Self] = []) -> None:
+	def __init__(self, current_selection: list[Self] | None = None) -> None:
 		super().__init__(
 			'Desktop',
 			ProfileType.Desktop,
@@ -45,7 +45,7 @@ class DesktopProfile(Profile):
 				combined_greeters[profile.default_greeter_type] += 1
 
 		if len(combined_greeters) >= 1:
-			return list(combined_greeters)[0]
+			return next(iter(combined_greeters))
 
 		return None
 

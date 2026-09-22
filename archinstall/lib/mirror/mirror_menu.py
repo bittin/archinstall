@@ -20,7 +20,7 @@ from archinstall.tui.result import ResultType
 
 
 class CustomMirrorRepositoriesList(ListManager[CustomRepository]):
-	def __init__(self, custom_repositories: list[CustomRepository]):
+	def __init__(self, custom_repositories: list[CustomRepository]) -> None:
 		self._actions = [
 			tr('Add a custom repository'),
 			tr('Change custom repository'),
@@ -141,7 +141,7 @@ class CustomMirrorRepositoriesList(ListManager[CustomRepository]):
 
 
 class CustomMirrorServersList(ListManager[CustomServer]):
-	def __init__(self, custom_servers: list[CustomServer]):
+	def __init__(self, custom_servers: list[CustomServer]) -> None:
 		self._actions = [
 			tr('Add a custom server'),
 			tr('Change custom server'),
@@ -206,7 +206,7 @@ class MirrorMenu(AbstractSubMenu[MirrorConfiguration]):
 		self,
 		mirror_list_handler: MirrorListHandler,
 		preset: MirrorConfiguration | None = None,
-	):
+	) -> None:
 		if preset:
 			self._mirror_config = preset
 		else:
@@ -337,7 +337,10 @@ async def select_mirror_regions(
 			return selected_mirrors
 
 
-async def add_custom_mirror_servers(preset: list[CustomServer] = []) -> list[CustomServer]:
+async def add_custom_mirror_servers(preset: list[CustomServer] | None = None) -> list[CustomServer]:
+	if preset is None:
+		preset = []
+
 	custom_mirrors = await CustomMirrorServersList(preset).show()
 
 	if not custom_mirrors:
@@ -346,7 +349,10 @@ async def add_custom_mirror_servers(preset: list[CustomServer] = []) -> list[Cus
 	return custom_mirrors
 
 
-async def select_custom_mirror(preset: list[CustomRepository] = []) -> list[CustomRepository]:
+async def select_custom_mirror(preset: list[CustomRepository] | None = None) -> list[CustomRepository]:
+	if preset is None:
+		preset = []
+
 	custom_mirrors = await CustomMirrorRepositoriesList(preset).show()
 
 	if not custom_mirrors:

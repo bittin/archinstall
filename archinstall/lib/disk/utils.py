@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from archinstall.lib.command import SysCommand, run
 from archinstall.lib.exceptions import DiskError, SysCallError
 from archinstall.lib.log import debug, info, warn
-from archinstall.lib.models.device import LsblkInfo
+from archinstall.lib.models.device import LsblkInfo, PartitionGUID
 
 
 class LsblkOutput(BaseModel):
@@ -137,11 +137,11 @@ def udev_sync() -> None:
 
 
 def mount(
-	dev_path: Path,
+	dev_path: Path | str,
 	target_mountpoint: Path,
 	mount_fs: str | None = None,
 	create_target_mountpoint: bool = True,
-	options: list[str] = [],
+	options: list[str] | None = None,
 ) -> None:
 	if create_target_mountpoint and not target_mountpoint.exists():
 		target_mountpoint.mkdir(parents=True, exist_ok=True)
@@ -156,7 +156,7 @@ def mount(
 
 	cmd = ['mount']
 
-	if len(options):
+	if options:
 		cmd.extend(('-o', ','.join(options)))
 	if mount_fs:
 		cmd.extend(('-t', mount_fs))
@@ -173,7 +173,7 @@ def mount(
 		raise DiskError(f'Could not mount {dev_path}: {command}\n{err.message}')
 
 
-def umount(mountpoint: Path, recursive: bool = False) -> None:
+def umount(mountpoint: Path | str, recursive: bool = False) -> None:
 	lsblk_info = get_lsblk_info(mountpoint)
 
 	if not lsblk_info.mountpoints:
@@ -196,3 +196,10 @@ def swapon(path: Path) -> None:
 		SysCommand(['swapon', str(path)])
 	except SysCallError as err:
 		raise DiskError(f'Could not enable swap {path}:\n{err.message}')
+
+
+def linux_root_guid(arch: str | None) -> PartitionGUID:
+	if arch == 'aarch64':
+		return PartitionGUID.LINUX_ROOT_AARCH64
+
+	return PartitionGUID.LINUX_ROOT_X86_64

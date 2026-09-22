@@ -14,7 +14,7 @@ class PacmanMenu(AbstractSubMenu[PacmanConfiguration]):
 		self,
 		pacman_conf: PacmanConfiguration,
 		advanced: bool = False,
-	):
+	) -> None:
 		self._pacman_conf = pacman_conf
 		self._advanced = advanced
 		menu_options = self._define_menu_options()
@@ -50,7 +50,7 @@ class PacmanMenu(AbstractSubMenu[PacmanConfiguration]):
 		config = await super().show()
 
 		if config is None:
-			return PacmanConfiguration.default()
+			return PacmanConfiguration()
 
 		_apply_to_live(config.parallel_downloads)
 

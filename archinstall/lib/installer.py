@@ -77,10 +77,10 @@ class Installer:
 		self,
 		target: Path,
 		disk_config: DiskLayoutConfiguration,
-		base_packages: list[str] = [],
+		base_packages: list[str] | None = None,
 		kernels: list[str] | None = None,
 		silent: bool = False,
-	):
+	) -> None:
 		"""
 		`Installer()` is the wrapper for most basic installation steps.
 		It also wraps :py:func:`~archinstall.Installer.pacstrap` among other things.
@@ -179,11 +179,10 @@ class Installer:
 		if mod not in self._modules:
 			self._modules.append(mod)
 
-	def _verify_service_stop(self, offline: bool, skip_ntp: bool, skip_wkd: bool) -> None:
+	def _verify_service_stop(self, skip_ntp: bool, skip_wkd: bool) -> None:
 		"""
 		Certain services might be running that affects the system during installation.
-		One such service is "reflector.service" which updates /etc/pacman.d/mirrorlist
-		We need to wait for it before we continue since we opted in to use a custom mirror/region.
+		We need to wait for them, to make sure ISO has no boot defects before install.
 		"""
 
 		if not skip_ntp:
@@ -202,17 +201,6 @@ class Installer:
 				time.sleep(1)
 		else:
 			info(tr('Skipping waiting for automatic time sync (this can cause issues if time is out of sync during installation)'))
-
-		if not offline:
-			info('Waiting for automatic mirror selection (reflector) to complete.')
-			for _ in range(60):
-				if self._service_state('reflector') in ('dead', 'failed', 'exited'):
-					break
-				time.sleep(1)
-			else:
-				warn('Reflector did not complete within 60 seconds, continuing anyway...')
-		else:
-			info('Skipped reflector...')
 
 		# info('Waiting for pacman-init.service to complete.')
 		# while self._service_state('pacman-init') not in ('dead', 'failed', 'exited'):
@@ -256,7 +244,7 @@ class Installer:
 		skip_wkd: bool = False,
 	) -> None:
 		# self._verify_boot_part()
-		self._verify_service_stop(offline, skip_ntp, skip_wkd)
+		self._verify_service_stop(skip_ntp, skip_wkd)
 
 	def mount_ordered_layout(self) -> None:
 		debug('Mounting ordered layout')
@@ -312,7 +300,7 @@ class Installer:
 				else:
 					self._mount_partition(part_mod)
 
-	def _mount_lvm_layout(self, luks_handlers: dict[Any, Luks2] = {}) -> None:
+	def _mount_lvm_layout(self, luks_handlers: dict[Any, Luks2] | None = None) -> None:
 		lvm_config = self._disk_config.lvm_config
 
 		if not lvm_config:
@@ -325,7 +313,7 @@ class Installer:
 			sorted_vol = sorted(vg.volumes, key=lambda x: x.mountpoint or Path('/'))
 
 			for vol in sorted_vol:
-				if luks_handler := luks_handlers.get(vol):
+				if luks_handlers is not None and (luks_handler := luks_handlers.get(vol)):
 					self._mount_luks_volume(vol, luks_handler)
 				else:
 					self._mount_lvm_vol(vol)
@@ -381,7 +369,7 @@ class Installer:
 			options = part_mod.mount_options
 
 			if part_mod.is_efi():
-				options = list(dict.fromkeys(options + ['fmask=0077', 'dmask=0077']))
+				options = list(dict.fromkeys(options + ['fmask=0177', 'dmask=0077']))
 
 			mount(part_mod.dev_path, target, options=options)
 		elif part_mod.fs_type == FilesystemType.BTRFS:
@@ -437,8 +425,11 @@ class Installer:
 		self,
 		dev_path: Path,
 		subvolumes: list[SubvolumeModification],
-		mount_options: list[str] = [],
+		mount_options: list[str] | None = None,
 	) -> None:
+		if mount_options is None:
+			mount_options = []
+
 		# Filter out subvolumes without mountpoints to avoid errors when sorting
 		subvols_with_mountpoints = [sv for sv in subvolumes if sv.mountpoint is not None]
 		for subvol in sorted(subvols_with_mountpoints, key=lambda x: x.relative_mountpoint):
@@ -774,6 +765,15 @@ class Installer:
 		with open(f'{self.target}/etc/systemd/network/10-{nic.iface}.network', 'a') as netconf:
 			netconf.write(str(conf))
 
+	def systemd_resolved_stub_mode(self) -> None:
+		"""
+		Enable systemd-resolved stub mode by (forcefully) setting a symlink
+		For further details see  https://wiki.archlinux.org/title/Systemd-resolved#DNS
+		"""
+		resolv = self.target / 'etc/resolv.conf'
+		resolv.unlink(missing_ok=True)
+		resolv.symlink_to('/run/systemd/resolve/stub-resolv.conf')
+
 	def copy_iso_network_config(self, enable_services: bool = False) -> bool:
 		# Copy (if any) iwd password and config files
 		iwd_dir = LPath('/var/lib/iwd')
@@ -802,11 +802,7 @@ class Installer:
 					self.pacman.strap('iwd')
 					self.enable_service('iwd')
 
-		# Enable systemd-resolved by (forcefully) setting a symlink
-		# For further details see  https://wiki.archlinux.org/title/Systemd-resolved#DNS
-		resolv_config_path = self.target / 'etc/resolv.conf'
-		resolv_config_path.unlink(missing_ok=True)
-		resolv_config_path.symlink_to('/run/systemd/resolve/stub-resolv.conf')
+		self.systemd_resolved_stub_mode()
 
 		# Copy (if any) systemd-networkd config files
 		network_dir = LPath('/etc/systemd/network')
@@ -871,11 +867,7 @@ class Installer:
 				return vendor.get_ucode()
 		return None
 
-	def _prepare_fs_type(
-		self,
-		fs_type: FilesystemType,
-		mountpoint: Path | None,
-	) -> None:
+	def _prepare_fs_type(self, fs_type: FilesystemType) -> None:
 		if (pkg := fs_type.installation_pkg) is not None:
 			self._base_packages.append(pkg)
 
@@ -896,7 +888,7 @@ class Installer:
 
 	def minimal_installation(
 		self,
-		optional_repositories: list[Repository] = [],
+		optional_repositories: list[Repository] | None = None,
 		mkinitcpio: bool = True,
 		hostname: str | None = None,
 		locale_config: LocaleConfiguration | None = LocaleConfiguration.default(),
@@ -910,7 +902,7 @@ class Installer:
 			for vg in self._disk_config.lvm_config.vol_groups:
 				for vol in vg.volumes:
 					if vol.fs_type is not None:
-						self._prepare_fs_type(vol.fs_type, vol.mountpoint)
+						self._prepare_fs_type(vol.fs_type)
 
 			types = (EncryptionType.LVM_ON_LUKS, EncryptionType.LUKS_ON_LVM)
 			if self._disk_encryption.encryption_type in types:
@@ -921,7 +913,7 @@ class Installer:
 					if part.fs_type is None:
 						continue
 
-					self._prepare_fs_type(part.fs_type, part.mountpoint)
+					self._prepare_fs_type(part.fs_type)
 
 					if part in self._disk_encryption.partitions:
 						self._prepare_encrypt()
@@ -931,6 +923,9 @@ class Installer:
 			self._base_packages.append(ucode.stem)
 		else:
 			debug('Archinstall will not install any ucode.')
+
+		if optional_repositories is None:
+			optional_repositories = []
 
 		debug(f'Optional repositories: {optional_repositories}')
 
@@ -1355,7 +1350,7 @@ class Installer:
 				boot_dir = boot_partition.mountpoint
 
 			add_options = [
-				f'--target={platform.machine()}-efi',
+				f'--target={"arm64" if platform.machine() == "aarch64" else platform.machine()}-efi',
 				f'--efi-directory={efi_partition.mountpoint}',
 				*boot_dir_arg,
 				'--bootloader-id=GRUB',
@@ -1489,15 +1484,19 @@ class Installer:
 
 			efi_dir_path.mkdir(parents=True, exist_ok=True)
 
+			efi_binaries: tuple[str, ...]
+			if platform.machine() == 'aarch64':
+				efi_binaries = ('BOOTAA64.EFI',)
+			else:
+				efi_binaries = ('BOOTIA32.EFI', 'BOOTX64.EFI')
+
 			try:
-				for file in ('BOOTIA32.EFI', 'BOOTX64.EFI'):
+				for file in efi_binaries:
 					(limine_path / file).copy_into(efi_dir_path)
 			except Exception as err:
 				raise DiskError(f'Failed to install Limine in {self.target}{efi_partition.mountpoint}: {err}')
 
-			hook_command = (
-				f'/usr/bin/cp /usr/share/limine/BOOTIA32.EFI {efi_dir_path_target}/ && /usr/bin/cp /usr/share/limine/BOOTX64.EFI {efi_dir_path_target}/'
-			)
+			hook_command = ' && '.join(f'/usr/bin/cp /usr/share/limine/{file} {efi_dir_path_target}/' for file in efi_binaries)
 
 			if not bootloader_removable:
 				# Create EFI boot menu entry for Limine.
@@ -1508,7 +1507,7 @@ class Installer:
 					raise OSError(f'Could not open or read /sys/firmware/efi/fw_platform_size to determine EFI bitness: {err}')
 
 				if efi_bitness == '64':
-					loader_path = '\\EFI\\arch-limine\\BOOTX64.EFI'
+					loader_path = f'\\EFI\\arch-limine\\{"BOOTAA64.EFI" if platform.machine() == "aarch64" else "BOOTX64.EFI"}'
 				elif efi_bitness == '32':
 					loader_path = '\\EFI\\arch-limine\\BOOTIA32.EFI'
 				else:
@@ -2127,13 +2126,12 @@ def accessibility_tools_in_use() -> bool:
 
 def run_custom_user_commands(commands: list[str], installation: Installer) -> None:
 	for index, command in enumerate(commands):
-		script_path = f'/var/tmp/user-command.{index}.sh'
-		chroot_path = f'{installation.target}/{script_path}'
+		script_path = LPath(f'/var/tmp/user-command.{index}.sh')
+		chroot_path = installation.target / script_path.relative_to_root()
 
 		info(f'Executing custom command "{command}" ...')
-		with open(chroot_path, 'w') as user_script:
-			user_script.write(command)
+		chroot_path.write_text(command)
 
 		SysCommand(f'arch-chroot -S {installation.target} bash {script_path}')
 
-		os.unlink(chroot_path)
+		chroot_path.unlink()

@@ -1,5 +1,6 @@
 import logging
 import os
+import platform
 from pathlib import Path
 
 from parted import Device, Disk, DiskException, FileSystem, Geometry, IOException, Partition, PartitionException, freshDisk, getAllDevices, getDevice, newDisk
@@ -10,11 +11,13 @@ from archinstall.lib.disk.utils import (
 	find_lsblk_info,
 	get_all_lsblk_info,
 	get_lsblk_info,
+	linux_root_guid,
 	mount,
 	udev_sync,
 	umount,
 )
 from archinstall.lib.exceptions import DiskError, SysCallError, UnknownFilesystemFormat
+from archinstall.lib.hardware import SysInfo
 from archinstall.lib.log import debug, error, info, log
 from archinstall.lib.models.device import (
 	DEFAULT_ITER_TIME,
@@ -26,7 +29,6 @@ from archinstall.lib.models.device import (
 	LsblkInfo,
 	ModificationStatus,
 	PartitionFlag,
-	PartitionGUID,
 	PartitionModification,
 	PartitionTable,
 	SubvolumeModification,
@@ -44,7 +46,7 @@ class DeviceHandler:
 
 	def __init__(self) -> None:
 		self._devices: dict[Path, BDevice] = {}
-		self._partition_table = PartitionTable.default()
+		self._partition_table = PartitionTable.GPT if SysInfo.has_uefi() else PartitionTable.MBR
 		self.load_devices()
 
 	@property
@@ -181,7 +183,7 @@ class DeviceHandler:
 
 	def get_btrfs_info(
 		self,
-		dev_path: Path,
+		dev_path: Path | str,
 		lsblk_info: LsblkInfo | None = None,
 	) -> list[_BtrfsSubvolumeInfo]:
 		if not lsblk_info:
@@ -215,7 +217,7 @@ class DeviceHandler:
 		# "fsroots": ["/@log", "/@home", "/@"...]
 		# we'll thereby map the fsroot, which are the mounted filesystem roots
 		# to the corresponding mountpoints
-		btrfs_subvol_info = dict(zip(lsblk_info.fsroots, lsblk_info.mountpoints))
+		btrfs_subvol_info = dict(zip(lsblk_info.fsroots, lsblk_info.mountpoints, strict=True))
 
 		# ID 256 gen 16 top level 5 path @
 		for line in result.splitlines():
@@ -234,7 +236,7 @@ class DeviceHandler:
 		self,
 		fs_type: FilesystemType,
 		path: Path,
-		additional_parted_options: list[str] = [],
+		additional_parted_options: list[str] | None = None,
 	) -> None:
 		mkfs_type = fs_type.value
 		command = None
@@ -261,6 +263,9 @@ class DeviceHandler:
 
 		if not command:
 			command = f'mkfs.{mkfs_type}'
+
+		if additional_parted_options is None:
+			additional_parted_options = []
 
 		cmd = [command, *options, *additional_parted_options, str(path)]
 
@@ -339,6 +344,7 @@ class DeviceHandler:
 		block_device: BDevice,
 		disk: Disk,
 		requires_delete: bool,
+		arch: str | None = None,
 	) -> None:
 		# when we require a delete and the partition to be (re)created
 		# already exists then we have to delete it first
@@ -394,7 +400,7 @@ class DeviceHandler:
 
 		if disk.type == PartitionTable.GPT.value:
 			if part_mod.is_root():
-				partition.type_uuid = PartitionGUID.LINUX_ROOT_X86_64.bytes
+				partition.type_uuid = linux_root_guid(arch).bytes
 			elif PartitionFlag.LINUX_HOME not in part_mod.flags and part_mod.is_home():
 				partition.setFlag(PartitionFlag.LINUX_HOME.flag_id)
 
@@ -536,11 +542,19 @@ class DeviceHandler:
 		# don't touch existing partitions
 		filtered_part = [p for p in modification.partitions if not p.exists()]
 
+		arch = platform.machine()
+
 		for part_mod in filtered_part:
 			# if the entire disk got nuked then we don't have to delete
 			# any existing partitions anymore because they're all gone already
 			requires_delete = modification.wipe is False
-			self._setup_partition(part_mod, modification.device, disk, requires_delete=requires_delete)
+			self._setup_partition(
+				part_mod,
+				modification.device,
+				disk,
+				requires_delete=requires_delete,
+				arch=arch,
+			)
 
 		disk.commit()
 

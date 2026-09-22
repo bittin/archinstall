@@ -1,5 +1,6 @@
 on: [ push, pull_request ]
 name: mypy type checking
+permissions: {}
 jobs:
     mypy:
         runs-on: ubuntu-latest
@@ -7,6 +8,8 @@ jobs:
             image: archlinux/archlinux:latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                persist-credentials: false
             - name: Prepare arch
               run: |
                 pacman-key --init
@@ -16,7 +19,7 @@ jobs:
             - run: pip install --break-system-packages --upgrade pip
             # this will install the exact version of mypy that is in the pyproject.toml file
             - name: Install archinstall dependencies
-              run: pip install --break-system-packages .[dev]
+              run: pip install --break-system-packages .[dev,doc]
             - run: python --version
             - run: mypy --version
             - name: run mypy

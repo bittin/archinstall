@@ -61,7 +61,7 @@ class BaseScreen(Screen[Result[ValueT]]):
 		Binding('ctrl+c', 'reset_operation', 'Reset', show=True),
 	]
 
-	def __init__(self, allow_skip: bool = False, allow_reset: bool = False):
+	def __init__(self, allow_skip: bool = False, allow_reset: bool = False) -> None:
 		super().__init__()
 		self._allow_skip = allow_skip
 		self._allow_reset = allow_reset
@@ -103,7 +103,7 @@ class LoadingScreen(BaseScreen[ValueT]):
 		timer: int = 3,
 		data_callback: Callable[[], Any] | None = None,
 		header: str | None = None,
-	):
+	) -> None:
 		super().__init__()
 		self._timer = timer
 		self._header = header
@@ -148,6 +148,19 @@ class LoadingScreen(BaseScreen[ValueT]):
 
 	def action_pop_screen(self) -> None:
 		_ = self.dismiss()
+
+
+class _Input(Input):
+	@override
+	def on_mount(self) -> None:
+		_translate_bindings(self._merged_bindings, self._bindings)
+
+
+class _Button(Button):
+	# no @override: Button has no on_mount in its MRO,
+	# textual dispatches the handler by naming convention
+	def on_mount(self) -> None:
+		_translate_bindings(self._merged_bindings, self._bindings)
 
 
 class _OptionList(OptionList):
@@ -233,7 +246,7 @@ class OptionListScreen(BaseScreen[ValueT]):
 		preview_location: Literal['right', 'bottom'] | None = None,
 		enable_filter: bool = False,
 		wrap_preview: bool = False,
-	):
+	) -> None:
 		super().__init__(allow_skip, allow_reset)
 		self._group = group
 		self._header = header
@@ -309,7 +322,7 @@ class OptionListScreen(BaseScreen[ValueT]):
 					yield ScrollableContainer(preview_label)
 
 		if self._filter:
-			yield Input(placeholder='/filter', id='filter-input')
+			yield _Input(placeholder='/filter', id='filter-input')
 
 		yield Footer()
 
@@ -466,7 +479,7 @@ class SelectListScreen(BaseScreen[ValueT]):
 		preview_location: Literal['right', 'bottom'] | None = None,
 		enable_filter: bool = False,
 		wrap_preview: bool = False,
-	):
+	) -> None:
 		super().__init__(allow_skip, allow_reset)
 		self._group = group
 		self._header = header
@@ -540,7 +553,7 @@ class SelectListScreen(BaseScreen[ValueT]):
 					yield ScrollableContainer(preview_label)
 
 		if self._filter:
-			yield Input(placeholder='/filter', id='filter-input')
+			yield _Input(placeholder='/filter', id='filter-input')
 
 		yield Footer()
 
@@ -683,7 +696,7 @@ class ConfirmationScreen(BaseScreen[ValueT]):
 		allow_reset: bool = False,
 		preview_location: Literal['bottom'] | None = None,
 		preview_header: str | None = None,
-	):
+	) -> None:
 		super().__init__(allow_skip, allow_reset)
 		self._group = group
 		self._header = header
@@ -702,12 +715,12 @@ class ConfirmationScreen(BaseScreen[ValueT]):
 			with Vertical(classes='content-container'):
 				with Horizontal(classes='buttons-container'):
 					for item in self._group.items:
-						yield Button(item.text, id=item.key)
+						yield _Button(item.text, id=item.key)
 		else:
 			with Vertical():
 				with Horizontal(classes='buttons-container'):
 					for item in self._group.items:
-						yield Button(item.text, id=item.key)
+						yield _Button(item.text, id=item.key)
 
 				yield Rule(orientation='horizontal')
 				if self._preview_header is not None:
@@ -767,7 +780,7 @@ class ConfirmationScreen(BaseScreen[ValueT]):
 
 
 class NotifyScreen(ConfirmationScreen[ValueT]):
-	def __init__(self, header: str):
+	def __init__(self, header: str) -> None:
 		group = MenuItemGroup([MenuItem(tr('Ok'))])
 		super().__init__(group, header)
 
@@ -827,7 +840,7 @@ class InputScreen(BaseScreen[str]):
 		allow_skip: bool = False,
 		validator: Validator | None = None,
 		info_callback: Callable[[str], InputInfo | None] | None = None,
-	):
+	) -> None:
 		super().__init__(allow_skip, allow_reset)
 		self._header = header or ''
 		self._placeholder = placeholder or ''
@@ -848,7 +861,7 @@ class InputScreen(BaseScreen[str]):
 
 		with Center(classes='container-wrapper'):
 			with Vertical(classes='input-content'):
-				yield Input(
+				yield _Input(
 					placeholder=self._placeholder,
 					password=self._password,
 					value=self._default_value,
@@ -986,7 +999,7 @@ class TableSelectionScreen(BaseScreen[ValueT]):
 		multi: bool = False,
 		preview_location: Literal['bottom'] | None = None,
 		preview_header: str | None = None,
-	):
+	) -> None:
 		super().__init__(allow_skip, allow_reset)
 		self._header = header
 		self._group = group
