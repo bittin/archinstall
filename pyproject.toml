@@ -149,7 +149,6 @@ disable = [
     "protected-access",
     "raise-missing-from",
     "unspecified-encoding",
-    "unused-argument",
 ]
 
 [tool.pylint.refactoring]
@@ -207,6 +206,7 @@ select = [
     "PLC",    # Pylint conventions
     "PLE",    # Pylint errors
     "PLW",    # Pylint warnings
+    "PTH",    # flake8-use-pathlib
     "PYI",    # flake8-pyi
     "RET",    # flake8-return
     "RSE",    # flake8-raise
@@ -229,8 +229,6 @@ ignore = [
     "PLC1901",  # compare-to-empty-string
     "PLW1514",  # unspecified-encoding
     "PLW1641",  # eq-without-hash
-    "PLW2901",  # redefined-loop-name
-    "RUF005",   # collection-literal-concatenation
     "RUF039",   # unraw-re-pattern
     "W191",     # tab-indentation
 ]
